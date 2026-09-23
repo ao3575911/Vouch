@@ -1,0 +1,27 @@
+# Example Capgate capability contract.
+# Anything not named here is denied. Delegation is non-transitive by default.
+name: research-assistant
+version: "1"
+agent_id: agent://research-assistant
+max_steps: 10
+approvers:
+  - security@example.com
+capabilities:
+  - tool: web_fetch
+    effect: allow
+    constraints:
+      - name: url
+        max_length: 2048
+  - tool: read_file
+    effect: allow
+    constraints:
+      - name: path
+        one_of:
+          - /data/public/report.txt
+          - /data/public/summary.txt
+  - tool: send_email
+    effect: escalate
+    approvers:
+      - security@example.com
+  - tool: delete_file
+    effect: deny
