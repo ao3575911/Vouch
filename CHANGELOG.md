@@ -4,6 +4,7 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+- README cut to one screen with flow diagrams; the detail moved to a docs site in `docs/` (GitHub Pages).
 - Packaging for PyPI: SPDX licence, project URLs and classifiers; README links work on PyPI; trusted-publishing workflow (`publish.yml`).
 
 ## v0.3.0 (2026-10-04)

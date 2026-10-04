@@ -8,7 +8,7 @@ hash-chained, signed event log. Utility is capability-scoped delegation:
 key granted — verifiable by anyone with the registry. No VM, no mail
 gateway, no storage service, no billing.
 
-See docs/did-home-spec.md for the method specification.
+See docs/concepts.md for the method specification.
 """
 
 from capgate.didhome.delegation import (

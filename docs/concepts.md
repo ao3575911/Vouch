@@ -1,7 +1,12 @@
-# The `did:home` DID Method — a free, local-first namespace for agents
+---
+title: Concepts
+nav_order: 2
+---
 
-**Project name: Vouch** (public brand; see [`plan-b.md`](./plan-b.md)).
-`did:home` is the method name underneath; `capgate` is the internal engine.
+# Concepts: the `did:home` method
+
+Vouch is the plain-language layer on top of `did:home`, a free, local-first
+namespace. `capgate` is the internal engine the code lives in for now.
 
 **Status:** draft v0.1 (research preview). Merges the product vision of
 [handle](https://github.com/ao3575911/handle) with the signed-manifest
@@ -121,14 +126,7 @@ signed `updated` events.
 
 ## 7. Security considerations
 
-- Private keys never enter the registry; the CLI keystore writes 0600 files.
-- Registry hosts are untrusted: they can withhold data (availability) but
-  cannot forge manifests, events, tokens, or pings (integrity).
-- Key compromise = handle compromise; mitigations (recovery ceremonies,
-  key rotation events, witness receipts) are future work inherited from
-  atHome's design.
-- Squatting is governed at the repo layer (PR review / rate limits), not
-  in the protocol.
+See the [Security model](security.md).
 
 ## 8. What was deliberately dropped from handle
 

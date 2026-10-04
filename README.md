@@ -1,120 +1,52 @@
 # Vouch
 
-**Your name. Your key. Your proof.** A portable handle you own, login with
-it, and statements anyone can check offline.
+**ID you carry, not ID they control.** Vouch is a self-owned alternative to
+government digital ID for logging in and signing things: a name you claim
+yourself, a key only you hold, and proofs anyone can check offline.
 
-- **Handle**: `@adam` is `did:home:adam`, a self-signed manifest in a static,
-  forkable registry with a signed, tamper-evident log. No account, no email,
-  no phone number. Lost your key? Your guardians can recover it.
-- **Login**: a small self-hostable OpenID Connect bridge that turns a signed
-  login proof into an ID token. Reference implementation, not yet tested
-  with real relying parties.
-- **Signed statements**: proof cards checked offline on paper, in a browser
-  or from the CLI. Nobody is called and nothing is logged.
+No account, no email, no phone number. A proof shows that a statement was
+signed by the key behind your name. It doesn't prove your age or legal name,
+because nobody vouches for what you sign.
 
-What it isn't: a proof is a statement signed by your key. Nobody attests
-that it's true, so Vouch can't prove your age or legal name and doesn't
-replace government ID. Scope and reasons:
-[`docs/adr-0001-scope.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/adr-0001-scope.md). Background on the
-digital-ID problem: [`docs/plan-b.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/plan-b.md).
-
-The Python distribution and the CLI are `vouch-id` (`vouch` on PyPI is
-someone else's project). The import name is `vouch`.
-
-## Get your name in 3 steps
-
-```bash
-pip install vouch-id
-vouch-id get @adam                 # 1. claim your name (makes your key)
-vouch-id helper @adam cal ping:send  # 2. give a helper a permission slip
-vouch-id audit                     # 3. prove the whole registry is untampered
+```mermaid
+flowchart LR
+    get["vouch-id get @adam"] -->|"signed manifest + log entry"| reg[("Registry<br/>names/ + events.jsonl")]
+    card["vouch-id card @adam"] -->|"signed with your key"| proof["Proof card"]
+    proof --> check{"Verifier<br/>browser or Python"}
+    reg -->|"@adam's key, checked against the log"| check
+    check --> ok["Valid, checked offline"]
 ```
 
-Plain words everywhere: **name, key, helper, permission slip, prove,
-vouch**. No jargon required to use it. (Technical alias:
-`python -m capgate.didhome` — same engine, same commands.)
-
-## Prove it anywhere
-
-```bash
-vouch-id card @adam               # printable proof card (QR code: pip install "vouch-id[qr]")
-# open web/verify.html, paste the card's JSON and @adam's manifest -> green tick, offline
+```mermaid
+sequenceDiagram
+    participant You
+    participant Bridge as Vouch OIDC bridge
+    participant App
+    You->>You: vouch-id card @adam --json --statement "login:myapp"
+    You->>Bridge: POST /authorize with the login proof
+    Bridge->>Bridge: check the key against the registry, the time and the nonce
+    Bridge-->>You: one-time code
+    You->>App: redirect with the code
+    App->>Bridge: POST /token with the code
+    Bridge-->>App: EdDSA-signed ID token
 ```
 
-[`web/verify.html`](https://github.com/ao3575911/vouch-id/blob/main/web/verify.html) is a single static file — host it
-on GitHub Pages or scan a paper card against it; nothing phones home.
-Paste the handle's manifest from a registry copy you trust to pin the key.
-Without it the page shows an amber "unpinned" result, because anyone can
-sign a proof that names any handle. In Python, use
-`verify_proof_for_handle(proof, registry)`.
-
-## Login with Vouch (OIDC bridge)
-
-Self-hostable OpenID Connect provider backed by did:home proofs. Today it
-takes a POSTed login proof; the browser redirect flow that WordPress or
-Nextcloud expect is not built yet (issue #13). Limits and deployment notes:
-[`docs/oidc-deployment.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/oidc-deployment.md).
+## Quick start
 
 ```bash
-python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
-vouch-id card @adam --json --statement "login:myapp"   # the login proof
-# POST it to /authorize, exchange the code at /token -> EdDSA ID token
+pip install vouch-id                   # 1. install
+vouch-id get @adam                     # 2. claim your name and make your key
+vouch-id card @adam --out card.html    # 3. sign a proof card anyone can check
 ```
 
-## Recovery = people, not helpdesks
+`vouch-id audit` re-checks the whole registry offline and prints
+`registry OK: 1 handles, 1 events, chain verified`.
 
-```bash
-vouch-id guardians @adam @sam @kim --threshold 2   # declare who can rescue you
-vouch-id recover-start @adam                       # lost key? make a new one
-vouch-id approve-recovery @sam @adam --new-public-key <hex>   # each guardian signs
-vouch-id recover @adam --approval sam.approval.json --approval kim.approval.json
-```
+## How it works
 
-The rotation is recorded in the tamper-evident log and the whole ceremony
-re-verifies offline (`vouch-id audit`). Guardianship: a parent issues a
-scoped child identity with the same permission-slip machinery.
+- `get` makes an Ed25519 key in `~/.didhome` and writes a self-signed manifest plus a signed entry in a hash-chained log to `./registry`, a plain folder meant to be a public git repo anyone can mirror or fork.
+- A verifier pins a proof to the key in your manifest and checks that key against the log. Nothing is called and nothing is logged.
+- Lose your key and the guardians you named beforehand can approve a new one.
+- `python -m vouch.oidc` runs a small OpenID Connect bridge that swaps a login proof for an ID token. It's a reference implementation and hasn't been tested with real apps yet.
 
-Maintainers: repo transfer checklist in [`docs/transfer.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/transfer.md).
-Isolated capgate demo: [`docs/isolation.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/isolation.md). OIDC
-deployment limits: [`docs/oidc-deployment.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/oidc-deployment.md).
-
-## Versioning and traceability
-
-- [SemVer](https://semver.org) tags: `vX.Y.Z`. History in [`CHANGELOG.md`](https://github.com/ao3575911/vouch-id/blob/main/CHANGELOG.md).
-- To release: bump `version` in `pyproject.toml` in a PR. Merging it to `main` creates the tag and a GitHub Release.
-- Every tag points at an exact commit, so `vX.Y.Z` is the trace reference for issues and PRs.
-
-## Repository governance and templates
-
-- CODEOWNERS: [`.github/CODEOWNERS`](https://github.com/ao3575911/vouch-id/blob/main/.github/CODEOWNERS)
-- Contributing guide: [`CONTRIBUTING.md`](https://github.com/ao3575911/vouch-id/blob/main/CONTRIBUTING.md)
-- Contributor guide: [`CONTRIBUTORS.md`](https://github.com/ao3575911/vouch-id/blob/main/CONTRIBUTORS.md)
-- Security policy: [`SECURITY.md`](https://github.com/ao3575911/vouch-id/blob/main/SECURITY.md)
-- Threat model: [`THREATMODEL.md`](https://github.com/ao3575911/vouch-id/blob/main/THREATMODEL.md)
-- Pull request template: [`.github/pull_request_template.md`](https://github.com/ao3575911/vouch-id/blob/main/.github/pull_request_template.md)
-- Issue templates: [`.github/ISSUE_TEMPLATE/`](https://github.com/ao3575911/vouch-id/tree/main/.github/ISSUE_TEMPLATE)
-- Hygiene bootstrap backlog: [`docs/repo-hygiene-bootstrap.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/repo-hygiene-bootstrap.md)
-- Copilot repository instructions: [`.github/copilot-instructions.md`](https://github.com/ao3575911/vouch-id/blob/main/.github/copilot-instructions.md)
-- Settings-as-code baseline: [`.github/settings.yml`](https://github.com/ao3575911/vouch-id/blob/main/.github/settings.yml)
-
-Social preview asset: [`.github/assets/social-preview.svg`](https://github.com/ao3575911/vouch-id/blob/main/.github/assets/social-preview.svg) (set in repository settings).
-
-## What's underneath
-
-1. **did:home**: the identity namespace (manifests, registry, delegation,
-   pings, recovery, proofs). Spec: [`docs/did-home-spec.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/did-home-spec.md).
-   The code lives in `src/capgate/didhome/` for now.
-2. **capgate**: a fail-closed capability-token tool gate for AI agents. It
-   shares the primitives (Ed25519, canonical JSON, hash-chained logs) but is
-   a separate product and will move to its own repo (issue #15). Docs:
-   [`docs/capgate.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/capgate.md).
-
-## Try it
-
-```bash
-git clone https://github.com/ao3575911/vouch-id.git && cd vouch-id
-pip install -e ".[dev]"
-ruff check src tests
-pytest -v
-node tests/js/verify_vectors.mjs   # browser verifier, Node 22+
-```
+[Docs](https://ao3575911.github.io/vouch-id/) · [Security](https://github.com/ao3575911/vouch-id/blob/main/SECURITY.md) · [Contributing](https://github.com/ao3575911/vouch-id/blob/main/CONTRIBUTING.md) · [Licence](https://github.com/ao3575911/vouch-id/blob/main/LICENSE)

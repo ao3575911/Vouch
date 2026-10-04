@@ -1,3 +1,8 @@
+---
+title: ADR 0001: scope
+nav_order: 7
+---
+
 # ADR 0001: What Vouch is and isn't
 
 Status: accepted, 4 Oct 2026
