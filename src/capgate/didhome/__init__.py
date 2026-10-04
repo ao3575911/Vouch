@@ -27,6 +27,13 @@ from capgate.didhome.manifest import (
     verify_manifest,
 )
 from capgate.didhome.ping import Ping, PingError, create_ping, verify_ping
+from capgate.didhome.proof import ProofError, card_html, create_proof, verify_proof
+from capgate.didhome.recovery import (
+    RecoveryError,
+    approve_recovery,
+    issue_child_identity,
+    verify_approvals,
+)
 from capgate.didhome.registry import Registry, RegistryError, export_bundle
 
 __all__ = [
@@ -36,16 +43,24 @@ __all__ = [
     "ManifestError",
     "Ping",
     "PingError",
+    "ProofError",
+    "RecoveryError",
     "Registry",
     "RegistryError",
+    "approve_recovery",
+    "card_html",
     "create_manifest",
     "create_ping",
+    "create_proof",
     "did_for_handle",
     "export_bundle",
     "issue_capability_token",
+    "issue_child_identity",
     "update_manifest",
     "validate_handle",
+    "verify_approvals",
     "verify_capability_token",
     "verify_manifest",
     "verify_ping",
+    "verify_proof",
 ]

@@ -128,6 +128,96 @@ class Registry:
         manifest = self.resolve(handle)
         self._append("deactivated", manifest, root_key, {}, now)
 
+    def set_guardians(
+        self,
+        handle: str,
+        guardians: list[str],
+        threshold: int,
+        root_key: Ed25519PrivateKey,
+        now: float | None = None,
+    ) -> None:
+        """Declare the handle's recovery guardians and approval threshold."""
+        manifest = self.resolve(handle)
+        names = sorted({validate_handle(g) for g in guardians})
+        if manifest.handle in names:
+            raise RegistryError("a handle cannot be its own guardian")
+        if not 1 <= threshold <= len(names):
+            raise RegistryError("threshold must be between 1 and the number of guardians")
+        for g in names:
+            self.resolve(g)  # every guardian must be a claimed, active handle
+        self._append(
+            "guardians_set", manifest, root_key, {"guardians": names, "threshold": threshold}, now
+        )
+
+    def guardian_policy(self, handle: str) -> tuple[list[str], int] | None:
+        """Latest declared (guardians, threshold) for a handle, if any."""
+        did = "did:home:" + validate_handle(handle)
+        policy = None
+        for r in self.log.records():
+            if r["event"] == "guardians_set" and r["agent_id"] == did:
+                body = r["detail"]["body"]
+                policy = (list(body["guardians"]), int(body["threshold"]))
+        return policy
+
+    def recover(
+        self,
+        handle: str,
+        new_root_key: Ed25519PrivateKey,
+        approvals: list[dict[str, Any]],
+        now: float | None = None,
+    ) -> Manifest:
+        """Rotate a lost root key via N-of-M guardian approvals.
+
+        The ``recovered`` event is signed by the NEW root key and carries the
+        guardian approvals; offline verification re-checks everything.
+        """
+        from capgate.didhome.recovery import RecoveryError, verify_approvals
+
+        current = self.resolve(handle)
+        policy = self.guardian_policy(handle)
+        if policy is None:
+            raise RegistryError(f"no guardians declared for @{current.handle}")
+        guardians, threshold = policy
+        new_pub = public_key_hex(new_root_key.public_key())
+        if new_pub == current.root_public_key:
+            raise RegistryError("new root key must differ from the current root key")
+        guardian_keys = {g: self.resolve(g).root_public_key for g in guardians}
+        try:
+            verify_approvals(
+                current.handle,
+                new_pub,
+                current.root_public_key,
+                approvals,
+                guardians,
+                threshold,
+                guardian_keys,
+            )
+        except RecoveryError as exc:
+            raise RegistryError(f"recovery denied: {exc}") from exc
+        body = {
+            "new_root_public_key": new_pub,
+            "prior_root_public_key": current.root_public_key,
+            "approvals": approvals,
+        }
+        detail = {
+            "body": body,
+            "signature": new_root_key.sign(
+                _event_payload("recovered", current.handle, body)
+            ).hex(),
+        }
+        self.log.append("recovered", current.did, detail, now=now)
+        data = current.to_dict()
+        data["root_public_key"] = new_pub
+        data["version"] = current.version + 1
+        data["updated_at"] = time.time() if now is None else now
+        unsigned = Manifest.from_dict(data)
+        data["signature"] = new_root_key.sign(unsigned.payload()).hex()
+        manifest = Manifest.from_dict(data)
+        self._path(current.handle).write_text(
+            json.dumps(manifest.to_dict(), sort_keys=True, indent=2), encoding="utf-8"
+        )
+        return manifest
+
     # -- derived state -----------------------------------------------------
 
     def revoked_token_ids(self, handle: str) -> set[str]:
@@ -162,7 +252,17 @@ class Registry:
             except ManifestError as exc:
                 raise RegistryError(f"manifest for @{name} invalid: {exc}") from exc
             manifests[m.did] = m
-        claimed: dict[str, str] = {}  # did -> root key at claim time
+        # initial (claim-time) root key: walk back through any recoveries
+        initial: dict[str, str] = {}
+        for r in self.log.records():
+            if r["event"] == "recovered":
+                initial.setdefault(
+                    r["agent_id"], r["detail"]["body"]["prior_root_public_key"]
+                )
+        for did, m in manifests.items():
+            initial.setdefault(did, m.root_public_key)
+        claimed: dict[str, str] = {}  # did -> root key as of the current event
+        policies: dict[str, tuple[list[str], int]] = {}  # did -> (guardians, threshold)
         for i, r in enumerate(self.log.records()):
             event, did, detail = r["event"], r["agent_id"], r["detail"]
             handle = did.removeprefix("did:home:")
@@ -171,12 +271,36 @@ class Registry:
                     raise RegistryError(f"event {i}: duplicate claim for {did}")
                 if did not in manifests:
                     raise RegistryError(f"event {i}: claim for {did} without manifest file")
-                claimed[did] = manifests[did].root_public_key
+                claimed[did] = initial[did]
             elif did not in claimed:
                 raise RegistryError(f"event {i}: {event} for unclaimed {did}")
-            key = public_key_from_hex(
-                manifests[did].root_public_key if did in manifests else claimed[did]
-            )
+            if event == "recovered":
+                from capgate.didhome.recovery import RecoveryError, verify_approvals
+
+                body = detail["body"]
+                if body["prior_root_public_key"] != claimed[did]:
+                    raise RegistryError(f"event {i}: recovery prior key mismatch for {did}")
+                policy = policies.get(did)
+                if policy is None:
+                    raise RegistryError(f"event {i}: recovery without declared guardians")
+                guardians, threshold = policy
+                guardian_keys = {
+                    g: claimed.get("did:home:" + g, "") for g in guardians
+                }
+                try:
+                    verify_approvals(
+                        handle,
+                        body["new_root_public_key"],
+                        body["prior_root_public_key"],
+                        body["approvals"],
+                        guardians,
+                        threshold,
+                        guardian_keys,
+                    )
+                except RecoveryError as exc:
+                    raise RegistryError(f"event {i}: {exc}") from exc
+                claimed[did] = body["new_root_public_key"]
+            key = public_key_from_hex(claimed[did])
             try:
                 key.verify(
                     bytes.fromhex(detail["signature"]),
@@ -184,6 +308,9 @@ class Registry:
                 )
             except (InvalidSignature, ValueError, KeyError) as exc:
                 raise RegistryError(f"event {i}: bad signature for {event} on {did}") from exc
+            if event == "guardians_set":
+                body = detail["body"]
+                policies[did] = (list(body["guardians"]), int(body["threshold"]))
         for did, m in manifests.items():
             if did not in claimed:
                 raise RegistryError(f"manifest {did} present without a claim event")

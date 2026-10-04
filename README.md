@@ -39,6 +39,43 @@ Plain words everywhere: **name, key, helper, permission slip, prove,
 vouch**. No jargon required to use it. (Technical alias:
 `python -m capgate.didhome` — same engine, same commands.)
 
+## Prove it anywhere
+
+```bash
+vouch card @adam                  # printable proof card (QR with pip install -e ".[qr]")
+# open web/verify.html, paste the card's JSON -> green tick, fully offline
+```
+
+[`web/verify.html`](./web/verify.html) is a single static file — host it
+on GitHub Pages or scan a paper card against it; nothing phones home.
+
+## Login with Vouch (OIDC bridge)
+
+Self-hostable OpenID Connect provider backed by did:home proofs — instant
+"Login with Vouch" on anything that speaks OIDC (WordPress, Nextcloud,
+forums):
+
+```bash
+python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
+vouch card @adam --json --statement "login:myapp"   # the login proof
+# POST it to /authorize, exchange the code at /token -> EdDSA ID token
+```
+
+## Recovery = people, not helpdesks
+
+```bash
+vouch guardians @adam @sam @kim --threshold 2   # declare who can rescue you
+vouch recover-start @adam                       # lost key? make a new one
+vouch approve-recovery @sam @adam --new-public-key <hex>   # each guardian signs
+vouch recover @adam --approval sam.approval.json --approval kim.approval.json
+```
+
+The rotation is recorded in the tamper-evident log and the whole ceremony
+re-verifies offline (`vouch audit`). Guardianship: a parent issues a
+scoped child identity with the same permission-slip machinery.
+
+Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md).
+
 ## What's underneath
 
 Two layers, one set of audited primitives (Ed25519, canonical JSON,

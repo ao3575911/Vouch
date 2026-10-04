@@ -8,6 +8,9 @@
     vouch check msg.json         check a signed message is genuine
     vouch takeout @adam ...      take your whole identity with you
     vouch audit                  check the whole registry is untampered
+    vouch card @adam             printable proof card (web/verify.html checks it)
+    vouch guardians @adam @sam @kim --threshold 2   people who can rescue your name
+    vouch recover-start / approve-recovery / recover   the rescue ceremony
 
 Same engine, friendlier words. Technical users can keep using
 ``python -m capgate.didhome`` — the commands map 1:1.
@@ -29,6 +32,7 @@ ALIASES = {
     "check": "verify-ping",
     "takeout": "move",
     "audit": "verify-registry",
+    "guardians": "set-guardians",
 }
 
 
