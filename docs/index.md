@@ -7,7 +7,7 @@ nav_order: 1
 
 **ID you carry, not ID they control.** Your name, your key, your proof.
 
-Vouch is three things ([why](adr-0001-scope.md)):
+Vouch is a plan B to government digital ID ([why](adr-0001-scope.md), [ADR 0002](adr-0002-attestations.md)):
 
 - **A handle you own.** `@adam` is `did:home:adam`, a self-signed manifest in
   a static, forkable registry with a signed, tamper-evident log. No account,
@@ -19,9 +19,11 @@ Vouch is three things ([why](adr-0001-scope.md)):
   a browser, against the handle's key in the registry. Nobody is called and
   nothing is logged.
 
-What it isn't: a proof is a statement signed by your key. Nobody attests that
-it's true, so Vouch can't prove your age or legal name and doesn't replace
-government ID.
+- **Age and name.** Pharmacies, notaries and people who know you vouch for
+  you ("over 18", "full name is …"). You show only what's asked, signed fresh
+  for that verifier, and they decide whose vouches they trust. No central
+  database, no tracking. Not legally recognised ID.
+  [How it works](attestations.md).
 
 ## Install
 
@@ -50,12 +52,14 @@ the same engine with its technical command names.
 | key | the Ed25519 secret only you hold |
 | helper | a scoped sub-identity such as `cal@adam` |
 | permission slip | a capability token you sign for a helper |
-| prove | sign a statement anyone can check offline |
+| prove | show a vouched claim, signed fresh for one verifier |
+| vouch | a signed claim someone makes about you, like "over 18" |
 
 ## Pages
 
 - [Concepts](concepts.md): the `did:home` method, manifests, registry, delegation, pings, moving
 - [CLI reference](cli.md): every `vouch-id` command, proof cards and the browser verifier
+- [Proving age and name](attestations.md): vouches, presentations and verifier policy
 - [Login with Vouch](login.md): the OIDC bridge, its flow and deployment limits
 - [Recovery](recovery.md): guardians and child identities
 - [Security model](security.md): what a proof does and doesn't show, and what to trust

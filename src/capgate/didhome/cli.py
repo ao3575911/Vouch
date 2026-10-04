@@ -21,6 +21,8 @@ import json
 import os
 import secrets
 import sys
+import time
+from datetime import date, datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -32,8 +34,22 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
 )
 
+from capgate.didhome.attest import (
+    AttestationError,
+    create_attestation,
+    create_presentation,
+    derive_age_claims,
+    over_claim,
+    verify_attestation,
+    verify_presentation,
+)
 from capgate.didhome.delegation import CapabilityToken, issue_capability_token
-from capgate.didhome.manifest import create_manifest, update_manifest, validate_handle
+from capgate.didhome.manifest import (
+    HANDLE_RE,
+    create_manifest,
+    update_manifest,
+    validate_handle,
+)
 from capgate.didhome.ping import Ping, create_ping, verify_ping
 from capgate.didhome.proof import VERIFY_URL, card_html, create_proof
 from capgate.didhome.recovery import approve_recovery
@@ -280,6 +296,151 @@ def cmd_recover(args: argparse.Namespace) -> None:
     print(f"recovered @{name}: root key rotated, manifest re-signed")
 
 
+def _signer(ks: Keystore, as_handle: str | None) -> str:
+    """The handle to sign with: --as, or the only root key in the keystore."""
+    if as_handle:
+        return validate_handle(as_handle)
+    names = sorted(p.stem for p in ks.home.glob("*.key") if HANDLE_RE.match(p.stem))
+    if len(names) != 1:
+        raise SystemExit("error: say who is vouching with --as @handle")
+    return names[0]
+
+
+def _parse_expiry(text: str | None, now: float) -> int | None:
+    if not text:
+        return None
+    units = {"d": 86400, "y": 365 * 86400}
+    if text[:-1].isdigit() and text[-1] in units:
+        return int(now) + int(text[:-1]) * units[text[-1]]
+    try:
+        return int(datetime.fromisoformat(text).astimezone().timestamp())
+    except ValueError:
+        raise SystemExit(f"error: bad --expires {text!r}; want 365d, 5y or YYYY-MM-DD") from None
+
+
+def cmd_attest(args: argparse.Namespace) -> None:
+    ks = _keystore(args)
+    voucher = _signer(ks, args.as_handle)
+    key = ks.load(voucher)
+    registry = Registry(args.registry)
+    voucher_manifest = registry.resolve(voucher)
+    subject = registry.resolve(args.subject)
+    claims: list[tuple[str, object]] = [(over_claim(n), True) for n in args.over]
+    if args.birthdate:
+        # Used here to work out the age thresholds, then dropped.
+        derived = derive_age_claims(date.fromisoformat(args.birthdate))
+        if not derived:
+            raise SystemExit("error: that birthdate is under every age threshold")
+        claims += [(c, True) for c in derived]
+    if args.name:
+        claims.append(("name", args.name))
+    for item in args.claim:
+        name, sep, value = item.partition("=")
+        if not sep:
+            raise SystemExit(f"error: bad --claim {item!r}; want key=value")
+        claims.append((name, value))
+    if not claims:
+        raise SystemExit("error: nothing to vouch for; use --over, --name or --claim")
+    now = time.time()
+    expires = _parse_expiry(args.expires, now)
+    atts = [
+        create_attestation(voucher_manifest, key, subject, c, v, args.method, expires, now)
+        for c, v in dict(claims).items()
+    ]
+    out = Path(args.out) if args.out else Path(f"{subject.handle}.vouch.json")
+    out.write_text(json.dumps(atts, sort_keys=True, indent=2), encoding="utf-8")
+    shown = ", ".join(a["claim"] for a in atts)
+    print(f"@{voucher} vouched for @{subject.handle}: {shown} ({args.method})")
+    print(f"give {out} to @{subject.handle}; they add it with: keep @{subject.handle} {out}")
+
+
+def _vouch_dir(home: str, handle: str) -> Path:
+    return Path(home) / "vouches" / validate_handle(handle)
+
+
+def _load_atts(path: Path) -> list[dict]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, list) else [data]
+
+
+def cmd_keep(args: argparse.Namespace) -> None:
+    registry = Registry(args.registry)
+    did = registry.resolve(args.handle).did
+    folder = _vouch_dir(args.home, args.handle)
+    folder.mkdir(parents=True, exist_ok=True)
+    for att in _load_atts(Path(args.file)):
+        if att.get("subject") != did:
+            raise SystemExit(f"error: vouch {att.get('id')} is not about @{args.handle}")
+        verify_attestation(registry, att)
+        (folder / f"{att['id']}.json").write_text(
+            json.dumps(att, sort_keys=True, indent=2), encoding="utf-8"
+        )
+        print(f"kept: {att['claim']} from {att['voucher'].removeprefix('did:home:')}")
+
+
+def cmd_present(args: argparse.Namespace) -> None:
+    name = validate_handle(args.handle)
+    key = _keystore(args).load(name)
+    manifest = Registry(args.registry).resolve(name)
+    atts: list[dict] = []
+    for path in sorted(_vouch_dir(args.home, name).glob("*.json")):
+        atts += _load_atts(path)
+    for path in args.vouch:
+        atts += _load_atts(Path(path))
+    show = [s.strip() for item in args.show for s in item.split(",") if s.strip()]
+    pres = create_presentation(manifest, key, atts, show, audience=args.audience, nonce=args.nonce)
+    text = json.dumps(pres, sort_keys=True, separators=(",", ":"))
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"presentation for {', '.join(show)}: {args.out} (valid for 5 minutes)")
+    else:
+        print(text)
+
+
+def cmd_revoke_attestation(args: argparse.Namespace) -> None:
+    ks = _keystore(args)
+    voucher = _signer(ks, args.as_handle)
+    Registry(args.registry).revoke_attestation(voucher, args.attestation_id, ks.load(voucher))
+    print(f"@{voucher} withdrew vouch {args.attestation_id}")
+
+
+def _when(ts: int) -> str:
+    return datetime.fromtimestamp(ts).astimezone().strftime("%Y-%m-%d")
+
+
+def cmd_verify_presentation(args: argparse.Namespace) -> None:
+    pres = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    trust = None
+    if args.trust:
+        trust = {validate_handle(h.strip()) for h in args.trust.split(",") if h.strip()}
+    try:
+        result = verify_presentation(
+            Registry(args.registry),
+            pres,
+            audience=args.audience,
+            nonce=args.nonce,
+            trust=trust,
+            min_vouchers=args.min,
+        )
+    except AttestationError as exc:
+        print(f"NOT VERIFIED: {exc}")
+        raise SystemExit(1) from None
+    print(f"presentation from {result.holder}, signed by their current key")
+    if not result.bound:
+        print("warning: no --nonce given, so this could be a replayed presentation")
+    for c in result.claims:
+        value = "yes" if c.value is True else (repr(c.value) if c.value is not None else "-")
+        status = "OK" if c.ok else "NOT ENOUGH"
+        print(f"{c.wanted}: {value}  [{status}: {len(c.vouchers)} of {args.min} needed]")
+        for v in c.vouchers:
+            until = f", until {_when(v['expires_at'])}" if v["expires_at"] else ""
+            print(f"  vouched by {v['voucher']} ({v['method']}, {_when(v['issued_at'])}{until})")
+    for label, reason in result.rejected:
+        print(f"  ignored {label}: {reason}")
+    if not result.ok:
+        raise SystemExit(1)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="didhome", description=__doc__)
     parser.add_argument("--home", default=os.path.expanduser("~/.didhome"), help="keystore dir")
@@ -361,6 +522,49 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("handle")
     p.add_argument("--approval", dest="approvals", action="append", required=True)
     p.set_defaults(func=cmd_recover)
+
+    p = sub.add_parser("attest", help="vouch for someone: sign a claim about their handle")
+    p.add_argument("subject", help="who you are vouching for, e.g. @adam")
+    p.add_argument("--as", dest="as_handle", help="your handle (if you hold more than one)")
+    p.add_argument("--over", type=int, action="append", default=[], metavar="AGE")
+    p.add_argument("--birthdate", help="YYYY-MM-DD; used to work out --over claims, never stored")
+    p.add_argument("--name", help="their full name")
+    p.add_argument("--claim", action="append", default=[], metavar="KEY=VALUE")
+    p.add_argument(
+        "--method",
+        required=True,
+        help="how you checked, e.g. saw-passport, in-person, known-5-years",
+    )
+    p.add_argument("--expires", help="365d, 5y or YYYY-MM-DD (default: no expiry)")
+    p.add_argument("--out")
+    p.set_defaults(func=cmd_attest)
+
+    p = sub.add_parser("keep", help="check vouches someone gave you and store them")
+    p.add_argument("handle")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_keep)
+
+    p = sub.add_parser("present", help="show vouched claims to a verifier")
+    p.add_argument("handle")
+    p.add_argument("--show", action="append", required=True, help="e.g. over18 or name")
+    p.add_argument("--audience", default="", help="who it is for, e.g. shop.example")
+    p.add_argument("--nonce", default="", help="the code the verifier gave you")
+    p.add_argument("--vouch", action="append", default=[], help="extra vouch file")
+    p.add_argument("--out")
+    p.set_defaults(func=cmd_present)
+
+    p = sub.add_parser("revoke-attestation", help="withdraw a vouch you made")
+    p.add_argument("attestation_id")
+    p.add_argument("--as", dest="as_handle")
+    p.set_defaults(func=cmd_revoke_attestation)
+
+    p = sub.add_parser("verify-presentation", help="check a presentation against the registry")
+    p.add_argument("file")
+    p.add_argument("--audience", help="require this audience")
+    p.add_argument("--nonce", help="require the nonce you gave the holder")
+    p.add_argument("--trust", help="only count these vouchers, e.g. @pharmacy,@notary")
+    p.add_argument("--min", type=int, default=1, help="vouchers needed per claim (default 1)")
+    p.set_defaults(func=cmd_verify_presentation)
 
     return parser
 

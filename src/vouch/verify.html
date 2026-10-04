@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vouch — verify a proof offline</title>
+<title>Vouch — verify a proof or presentation</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
 h1{font-size:1.4rem}
 textarea{width:100%;height:10rem;font-family:monospace;font-size:.8rem}
 #manifest{height:6rem}
+input{font-size:.9rem;width:100%;box-sizing:border-box}
+#result{white-space:pre-line}
 button{font-size:1rem;padding:.5rem 1.2rem;margin-top:.5rem;cursor:pointer}
 #result{margin-top:1rem;padding:1rem;border-radius:8px;font-size:1.2rem;display:none}
 .ok{background:#e6f7e6;border:2px solid #2a2;color:#161}
@@ -18,25 +20,34 @@ button{font-size:1rem;padding:.5rem 1.2rem;margin-top:.5rem;cursor:pointer}
 </style>
 </head>
 <body>
-<h1>Vouch — verify a proof</h1>
+<h1>Vouch — verify a proof or presentation</h1>
 <p id="instructions" class="hint">Paste proof JSON (or the text behind a
-card's QR), then choose Verify. The check runs entirely in this page —
-offline, nobody is called, nothing is logged.</p>
+card's QR), or a presentation from <code>vouch-id prove</code>, then choose
+Verify. The check runs in this page and nothing is logged. The only network
+call is to a registry URL, if you enter one.</p>
 <p id="limits" class="hint">A valid signature proves that the listed key
 signed the statement. It does not independently prove that the statement is
 true or that an issuer verified it.</p>
-<label for="proof">Proof JSON</label>
+<label for="proof">Proof or presentation JSON</label>
 <textarea id="proof" aria-describedby="instructions limits"
 placeholder='{"did":"did:home:adam", ... }'></textarea>
-<label for="manifest">Manifest JSON or public key from the registry (optional)</label>
+<label for="manifest">Registry copy: manifest JSON, a JSON list of manifests, a public key, or a registry URL</label>
 <textarea id="manifest" aria-describedby="pinhint"
-placeholder='contents of names/adam.json, or the 64-hex root public key'></textarea>
+placeholder='contents of names/adam.json, the 64-hex root public key, or https://…/registry'></textarea>
+<fieldset><legend>Presentation checks</legend>
+<label for="audience">Audience (who it should be for)</label><input id="audience">
+<label for="nonce">Nonce you gave the holder</label><input id="nonce">
+<label for="trust">Trusted vouchers, comma separated (blank: any)</label><input id="trust" placeholder="@pharmacy,@notary">
+<label for="min">Vouchers needed per claim</label><input id="min" type="number" min="1" value="1">
+</fieldset>
 <p id="pinhint" class="hint">Anyone can sign a proof that names any handle
 with their own key. Paste the handle's manifest from a registry copy you
 trust (for example <code>vouch-id show @adam</code>) to check the key. The page
 checks the manifest's own signature but can't see the registry's log, so use a
 copy you trust (<code>vouch-id audit</code> checks the log). Without a manifest
-the result is unpinned.</p>
+the result is unpinned. Presentations need the holder's and vouchers'
+manifests; with a registry URL the page also reads <code>events.jsonl</code>
+for withdrawn vouches. Without it, revocation isn't checked.</p>
 <br><button id="go" type="button">Verify</button>
 <div id="result" role="status" aria-live="polite" aria-atomic="true"></div>
 <script id="vouch-core">
@@ -133,8 +144,141 @@ async function checkProof(proof, pinned){
     return {level: "bad", text: "\u2717 not verified \u2014 " + e.message};
   }
 }
+const OVER = /^over([1-9][0-9]?)$/;
+function satisfies(claim, wanted){
+  const h = OVER.exec(claim), w = OVER.exec(wanted);
+  if (h && w) return Number(h[1]) >= Number(w[1]);
+  return claim === wanted;
+}
+function handleOf(did){
+  if (typeof did !== "string" || !/^did:home:[a-z0-9_]{3,24}$/.test(did)){
+    throw new Error("not a did:home DID");
+  }
+  return did.slice(9);
+}
+function unsignedOf(obj){
+  return Object.fromEntries(Object.entries(obj).filter(([k]) => k !== "signature"));
+}
+// manifests: {handle: manifest} from a registry copy the verifier trusts.
+// opts: {audience, nonce, trust: [handles], min, now (seconds), maxAge, revoked: [ids]}
+// Returns {level, text, claims}. Mirrors capgate.didhome.attest.verify_presentation,
+// except that it only accepts the holder's current key.
+async function checkPresentation(pres, manifests, opts){
+  opts = opts || {};
+  const min = opts.min || 1, maxAge = opts.maxAge || 300;
+  const now = opts.now === undefined ? Date.now() / 1000 : opts.now;
+  const trust = opts.trust && opts.trust.length ? opts.trust : null;
+  const revoked = new Set(opts.revoked || []);
+  try {
+    if (pres.type !== "vouch-presentation" || pres.v !== 1) throw new Error("not a presentation");
+    const holder = handleOf(pres.holder);
+    const hm = manifests[holder];
+    if (!hm) throw new Error("no registry copy of @" + holder);
+    await checkManifest(hm);
+    if (hm.did !== pres.holder) throw new Error("manifest is for a different handle");
+    if (!Array.isArray(pres.show) || !pres.show.length || !Array.isArray(pres.attestations)){
+      throw new Error("malformed presentation");
+    }
+    if (!(await edVerify(hm.root_public_key, pres.signature, canonical(unsignedOf(pres))))){
+      throw new Error("holder signature invalid");
+    }
+    const age = now - pres.issued_at;
+    if (!(age <= maxAge && age >= -30)) throw new Error("presentation is " + Math.round(age) + "s old");
+    if (opts.audience && pres.audience !== opts.audience) throw new Error("made for " + JSON.stringify(pres.audience));
+    if (opts.nonce && pres.nonce !== opts.nonce) throw new Error("nonce does not match: possible replay");
+    const good = [], rejected = [];
+    for (const a of pres.attestations){
+      const label = String(a.id).slice(0, 8) + " from " + String(a.voucher).replace("did:home:", "@");
+      try {
+        if (a.type !== "vouch-attestation" || a.v !== 1) throw new Error("not an attestation");
+        if (a.subject !== pres.holder) throw new Error("about someone else");
+        const voucher = handleOf(a.voucher);
+        if (voucher === holder) throw new Error("self-vouch");
+        const vm = manifests[voucher];
+        if (!vm || vm.did !== a.voucher) throw new Error("no registry copy of @" + voucher);
+        await checkManifest(vm);
+        if (!(await edVerify(vm.root_public_key, a.signature, canonical(unsignedOf(a))))){
+          throw new Error("signature is not by the voucher's current key");
+        }
+        if (a.subject_public_key !== hm.root_public_key) throw new Error("made for a different key (check with vouch-id check)");
+        if (a.issued_at > now + 30) throw new Error("issued in the future");
+        if (a.expires_at !== null && now >= a.expires_at) throw new Error("expired");
+        if (revoked.has(a.id)) throw new Error("revoked by the voucher");
+        if (trust && !trust.includes(voucher)) throw new Error("voucher not on your trusted list");
+        good.push(a);
+      } catch (e) { rejected.push(label + ": " + e.message); }
+    }
+    const claims = [];
+    for (const wanted of [...new Set(pres.show)]){
+      const groups = new Map();
+      for (const a of good){
+        if (!satisfies(a.claim, wanted)) continue;
+        const value = OVER.test(wanted) ? true : a.value;
+        const key = JSON.stringify(value);
+        if (!groups.has(key)) groups.set(key, {value, vouchers: new Map()});
+        const g = groups.get(key);
+        if (!g.vouchers.has(a.voucher)) g.vouchers.set(a.voucher, a);
+      }
+      let best = null;
+      for (const g of groups.values()) if (!best || g.vouchers.size > best.vouchers.size) best = g;
+      const vouchers = best ? [...best.vouchers.values()].map(a => ({
+        voucher: "@" + handleOf(a.voucher), method: a.method, issued_at: a.issued_at})) : [];
+      claims.push({wanted, ok: vouchers.length >= min, value: best ? best.value : null, vouchers});
+    }
+    const ok = claims.every(c => c.ok);
+    const lines = claims.map(c => (c.ok ? "\u2713 " : "\u2717 ") + c.wanted + ": " +
+      (c.value === true ? "yes" : c.value === null ? "no vouch" : c.value) +
+      " (" + c.vouchers.length + " of " + min + " needed" +
+      (c.vouchers.length ? ": " + c.vouchers.map(v => v.voucher + ", " + v.method).join("; ") : "") + ")");
+    rejected.forEach(r => lines.push("ignored " + r));
+    let level = ok ? "ok" : "bad";
+    if (ok && !opts.nonce){
+      level = "warn";
+      lines.push("No nonce checked, so this could be a replay.");
+    }
+    if (ok && opts.revoked === undefined) lines.push("Revocation not checked (no registry URL).");
+    return {level, text: "Presentation from @" + holder + "\n" + lines.join("\n"), claims};
+  } catch (e) {
+    return {level: "bad", text: "\u2717 not verified \u2014 " + e.message, claims: []};
+  }
+}
 </script>
 <script>
+async function registryFromUrl(base, handles){
+  base = base.replace(/\/+$/, "");
+  const manifests = {};
+  for (const h of handles){
+    const r = await fetch(base + "/names/" + h + ".json");
+    if (r.ok) manifests[h] = await r.json();
+  }
+  const revoked = [];
+  const r = await fetch(base + "/events.jsonl");
+  if (!r.ok) throw new Error("could not read events.jsonl from the registry");
+  for (const line of (await r.text()).split("\n")){
+    if (!line.trim()) continue;
+    const ev = JSON.parse(line);
+    if (ev.event === "attestation_revoked") revoked.push(ev.detail.body.attestation_id);
+  }
+  return {manifests, revoked};
+}
+async function verifyPresentation(pres){
+  const raw = document.getElementById("manifest").value.trim();
+  const handles = new Set([String(pres.holder).replace("did:home:", "")]);
+  (pres.attestations || []).forEach(a => handles.add(String(a.voucher).replace("did:home:", "")));
+  let manifests = {}, revoked;
+  if (/^https?:\/\//.test(raw)){
+    ({manifests, revoked} = await registryFromUrl(raw, handles));
+  } else if (raw){
+    const parsed = JSON.parse(raw);
+    for (const m of Array.isArray(parsed) ? parsed : [parsed]) manifests[m.handle] = m;
+  }
+  const trust = document.getElementById("trust").value.split(",")
+    .map(s => s.trim().replace(/^@/, "")).filter(Boolean);
+  return checkPresentation(pres, manifests, {
+    audience: document.getElementById("audience").value.trim(),
+    nonce: document.getElementById("nonce").value.trim(),
+    trust, min: Number(document.getElementById("min").value) || 1, revoked});
+}
 function readPinned(){
   const raw = document.getElementById("manifest").value.trim();
   if (!raw) return null;
@@ -146,8 +290,10 @@ async function verify(){
   el.style.display = "block";
   let result;
   try {
-    result = await checkProof(
-      JSON.parse(document.getElementById("proof").value), readPinned());
+    const input = JSON.parse(document.getElementById("proof").value);
+    result = input.type === "vouch-presentation"
+      ? await verifyPresentation(input)
+      : await checkProof(input, readPinned());
   } catch (e) {
     result = {level: "bad", text: "\u2717 not verified \u2014 " + e.message};
   }

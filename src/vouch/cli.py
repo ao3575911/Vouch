@@ -5,12 +5,17 @@
     vouch-id helper @adam cal ...   give a helper a permission slip
     vouch-id cancel @adam <slip>    cancel a permission slip
     vouch-id send @adam @sam ...    send a signed message
-    vouch-id check msg.json         check a signed message is genuine
+    vouch-id check msg.json         check a signed message or presentation is genuine
     vouch-id takeout @adam ...      take your whole identity with you
     vouch-id audit                  check the whole registry is untampered
     vouch-id card @adam             printable proof card, checked in the browser verifier
     vouch-id guardians @adam @sam @kim --threshold 2   people who can rescue your name
     vouch-id recover-start / approve-recovery / recover   the rescue ceremony
+    vouch-id vouch @adam --over 18 --method saw-passport   vouch for someone
+    vouch-id keep @adam adam.vouch.json                   store vouches you were given
+    vouch-id prove @adam --show over18 --nonce 4821       show a vouched claim
+    vouch-id check proof.json --nonce 4821 --min 2        check a presentation
+    vouch-id unvouch <id>                                 withdraw a vouch you made
 
 Same engine, friendlier words. Technical users can keep using
 ``python -m capgate.didhome`` — the commands map 1:1.
@@ -18,7 +23,9 @@ Same engine, friendlier words. Technical users can keep using
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 from capgate.didhome.cli import build_parser
 
@@ -33,7 +40,18 @@ ALIASES = {
     "takeout": "move",
     "audit": "verify-registry",
     "guardians": "set-guardians",
+    "vouch": "attest",
+    "prove": "present",
+    "unvouch": "revoke-attestation",
 }
+
+
+def _is_presentation(path: str) -> bool:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("type") == "vouch-presentation"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
             continue
         # first positional = the subcommand
         args[i] = ALIASES.get(token, token)
+        if token == "check":
+            files = [a for a in args[i + 1 :] if not a.startswith("-")]
+            if any(_is_presentation(f) for f in files):
+                args[i] = "verify-presentation"
         break
     parser = build_parser()
     parser.prog = "vouch-id"

@@ -98,5 +98,106 @@
     "public_key": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
     "signature": "b56d51e9cf597cb05e08e66bc305ed9b9d42f896b697f34af0780e36f08578ac4b078cd81d7f9e2d920e6d5cbdb2ba5bef02f6c9d418fc6c1883e849ca03ba06",
     "statement": "Zoë, member"
+  },
+  "presentation": {
+    "_note": "test-only keys",
+    "now": 1800000010,
+    "seeds": {
+      "adam": "1111111111111111111111111111111111111111111111111111111111111111",
+      "pharmacy": "2222222222222222222222222222222222222222222222222222222222222222",
+      "notary": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "manifests": {
+      "adam": {
+        "did": "did:home:adam",
+        "handle": "adam",
+        "root_public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+        "services": [],
+        "agents": [],
+        "version": 1,
+        "created_at": 1799999000.0,
+        "updated_at": 1799999000.0,
+        "signature": "e1bc08772db4a9d0a80046426ae2c01ca62e8cb307715e31f86b2da4ebc511218d47bbdad7ec974051d9b38ed1e3d4b2e362171d306fc7584fe5c4ecc9f5c708"
+      },
+      "pharmacy": {
+        "did": "did:home:pharmacy",
+        "handle": "pharmacy",
+        "root_public_key": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "services": [],
+        "agents": [],
+        "version": 1,
+        "created_at": 1799999000.0,
+        "updated_at": 1799999000.0,
+        "signature": "70b489904a833024a268f975421f82bf6dbdc8eea316294dbb0eb098a2fdb1cdd7618b2ec07acc1f4e71a3b108fcd0bb54a059ffe87cbcd70d1eb655e36fe600"
+      },
+      "notary": {
+        "did": "did:home:notary",
+        "handle": "notary",
+        "root_public_key": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+        "services": [],
+        "agents": [],
+        "version": 1,
+        "created_at": 1799999000.0,
+        "updated_at": 1799999000.0,
+        "signature": "8ff274a6920e522c5287d8854a707613276613d2a12bb45b60cbe8a1e1f6306246cf612dda3c52ccfa4a462061ca7b36614a06814aaef88b9f3b6df0b577ce02"
+      }
+    },
+    "presentation": {
+      "type": "vouch-presentation",
+      "v": 1,
+      "holder": "did:home:adam",
+      "show": [
+        "over18",
+        "name"
+      ],
+      "attestations": [
+        {
+          "type": "vouch-attestation",
+          "v": 1,
+          "id": "baabdc3063abef0dc430ae8fa4691e93",
+          "voucher": "did:home:pharmacy",
+          "subject": "did:home:adam",
+          "subject_public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+          "claim": "over18",
+          "value": true,
+          "method": "saw-passport",
+          "issued_at": 1799999900,
+          "expires_at": null,
+          "signature": "58e739168740a0b5b0a40a8835facc914607960fbe65e301de7f0968f5a51211efb3968be456cdcf0792e2a7dbc91cdbc5e98b95dbf165daaf58f5efef0f6b07"
+        },
+        {
+          "type": "vouch-attestation",
+          "v": 1,
+          "id": "5155626aebcf00ae49795724ba0e5361",
+          "voucher": "did:home:notary",
+          "subject": "did:home:adam",
+          "subject_public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+          "claim": "over21",
+          "value": true,
+          "method": "in-person",
+          "issued_at": 1799999900,
+          "expires_at": 1800086400,
+          "signature": "2e3fe0903f8d74bfd761249e9126a16f1b302e61cfdacab8fe5e48d1ed98ecb1688864ffef4abbdeb5ad32f0879a3ff41065950749524fdd2089bc4b0fb9c403"
+        },
+        {
+          "type": "vouch-attestation",
+          "v": 1,
+          "id": "a7debe653c15d6503f054aa2e97ec908",
+          "voucher": "did:home:notary",
+          "subject": "did:home:adam",
+          "subject_public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+          "claim": "name",
+          "value": "Zo\u00eb Adams",
+          "method": "saw-passport",
+          "issued_at": 1799999900,
+          "expires_at": null,
+          "signature": "c836f64c98478881d6c139a1ac00bce4d91ed31d904d818791be49994a3f291f1679b0fa25c26a7f422c05d2edd1b3adfcc1767800b7471cfaf3878ed8109307"
+        }
+      ],
+      "audience": "shop.example",
+      "nonce": "4821",
+      "issued_at": 1800000000,
+      "signature": "608ac7224507d39a2fb71aa7e2aa04b5e936a05b01b1602c5ec4e593cacf962f86db15de8d2586d345efbe60c085789e3c332d2c961cb8dde58c421c22e6500e"
+    }
   }
 }

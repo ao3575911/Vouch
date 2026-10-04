@@ -4,6 +4,7 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+- Vouches: prove age and name. `vouch` signs a claim (over18, name, key=value) about someone's handle and key, with how you checked and an optional expiry. `keep` stores vouches, `prove` signs chosen ones for one verifier (audience, nonce, 5 minutes), `check` verifies them against the registry with `--trust` and `--min`, and `unvouch` withdraws one through the event log. The browser verifier checks presentations too. ADR 0002 amends ADR 0001.
 - OIDC bridge: `GET /authorize` login page, PKCE (S256) required, client secrets (`--client-secret-file`), login statements bound to the issuer and a one-time challenge, a persistent signing key (`--signing-key`), and the issuer follows `--port`. **Breaking:** `POST /authorize` now takes `{challenge, proof}` from a `GET /authorize` login.
 - Key files are created 0600 atomically. Optional passphrase (`--passphrase` or `VOUCH_ID_PASSPHRASE`) encrypts keys, the recovery key and takeout bundles. `takeout --without-key`.
 - The browser verifier is hosted at https://ao3575911.github.io/vouch-id/verify.html and ships in the wheel. It now checks the pasted manifest's signature, not just its key. Cards and the CLI point at it.

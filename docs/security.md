@@ -1,6 +1,6 @@
 ---
 title: Security model
-nav_order: 6
+nav_order: 7
 ---
 
 # Security model
@@ -10,7 +10,9 @@ nav_order: 6
 A proof shows one thing: the exact statement was signed by the key behind a
 handle. Nobody attests that the statement is true. Don't treat a proof as
 evidence of age, government identity or anything beyond control of the key
-and the signed statement ([ADR 0001](adr-0001-scope.md)).
+and the signed statement. Age and name come from vouches: claims other
+handles sign about yours, checked with `vouch-id check` and your own trust
+policy ([Proving age and name](attestations.md), [ADR 0002](adr-0002-attestations.md)).
 
 ## Pin the key
 

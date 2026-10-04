@@ -26,6 +26,11 @@ Every plain-word command maps to an engine command, and both names work.
 | `cancel @adam <token_id>` | `revoke` | cancel a permission slip |
 | `send @adam @sam --token slip.json` | `ping` | send a signed message (`--body JSON`, `--out FILE`) |
 | `check ping.json` | `verify-ping` | check a signed message against the registry |
+| `vouch @adam --over 18 --method saw-passport` | `attest` | vouch for someone (`--name`, `--claim k=v`, `--birthdate`, `--expires`, `--as`, `--out`) |
+| `keep @adam adam.vouch.json` | `keep` | check vouches you were given and store them |
+| `prove @adam --show over18 --nonce N` | `present` | sign chosen vouches for one verifier (`--audience`, `--out`) |
+| `check proof.json --nonce N` | `verify-presentation` | check a presentation (`--audience`, `--trust @a,@b`, `--min N`) |
+| `unvouch <id>` | `revoke-attestation` | withdraw a vouch you made (`--as`) |
 | `takeout @adam --out bundle.json` | `move` | export manifest, private key and history |
 | `audit` | `verify-registry` | check the whole registry offline |
 | `card @adam` | `card` | make a printable proof card |
@@ -34,7 +39,8 @@ Every plain-word command maps to an engine command, and both names work.
 | `approve-recovery @sam @adam --new-public-key HEX` | `approve-recovery` | a guardian signs off on a new key |
 | `recover @adam --approval FILE ...` | `recover` | rotate the key with enough approvals |
 
-Recovery is covered step by step in [Recovery](recovery.md).
+`check` picks the right engine command from the file. Vouches are covered in
+[Proving age and name](attestations.md), recovery in [Recovery](recovery.md).
 
 ## Example
 

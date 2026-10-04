@@ -1,6 +1,6 @@
 ---
 title: Recovery
-nav_order: 5
+nav_order: 6
 ---
 
 # Social recovery & guardianship spec

@@ -1,11 +1,13 @@
 ---
 title: "ADR 0001: scope"
-nav_order: 7
+nav_order: 8
 ---
 
 # ADR 0001: What Vouch is and isn't
 
-Status: accepted, 4 Oct 2026
+Status: accepted, 4 Oct 2026. Amended by [ADR 0002](adr-0002-attestations.md):
+Vouch now proves age and name through vouches, and the attested-attribute
+limits below no longer apply.
 
 ## Context
 
@@ -16,11 +18,10 @@ The README pitched Vouch as a "Plan B to government digital ID" and promised
 instant login on WordPress and Nextcloud. The code does less than that, and
 two products in one wheel and one README muddy both.
 
-A Vouch proof is a statement signed by a key the user holds. Nothing attests
-that the statement is true. Government ID is useful because a trusted issuer
-attests attributes such as age or legal name. Vouch can't replace that
-without an issuer and a selective-disclosure proof system, and neither is on
-the table.
+A Vouch proof is a statement signed by a key the user holds. On its own,
+nothing attests that the statement is true. Government ID is useful because a
+trusted party attests attributes such as age or legal name. ADR 0002 adds
+that: other handles vouch for yours.
 
 ## Decision
 
@@ -35,10 +36,12 @@ Vouch is three things:
 3. **Signed statements.** Proof cards that anyone can check offline against
    the handle's registry key, on paper, in a browser or from the CLI.
 
+4. **Vouches** (added by ADR 0002). Signed claims such as over18 or a name,
+   made by people and businesses who checked, and presented by the holder.
+
 Vouch is not:
 
-- a source of attested attributes (age, legal name, citizenship, address)
-- a replacement for government ID or a credential wallet
+- legally recognised ID
 - a blockchain, a DNS-based identity, or a hosted account service
 
 capgate is a separate product. It moves to its own repository, and the
@@ -52,11 +55,8 @@ stays `vouch`. Nothing is published yet.
 
 ## Consequences
 
-- The README leads with the three things above and states the limits.
-  `docs/plan-b.md` stays as background on the digital-ID problem, not as the
-  product pitch.
-- Attested attributes (for example an over-18 proof) would need an issuer,
-  most likely a government wallet credential with a zero-knowledge layer.
-  That is a separate project and would get its own ADR.
+- The README leads with what Vouch does and states the limits.
+- Attested attributes come from vouches (ADR 0002), not from a government
+  issuer.
 - Work on the OIDC bridge aims at standard relying parties first (GET
   `/authorize`, PKCE, issuer-bound login statements).
