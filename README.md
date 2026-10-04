@@ -78,11 +78,9 @@ Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md)
 
 ## Versioning and traceability
 
-- Release intent is versioned via tags with commit-hash traceability.
-- Every push is tagged by workflow with:
-  - `sha-<12-char-commit-sha>`
-  - `v<pyproject-version>-<12-char-commit-sha>`
-- Issues and PRs should include commit SHA/tag references when reporting defects or changes.
+- [SemVer](https://semver.org) tags: `vX.Y.Z`. History in [`CHANGELOG.md`](./CHANGELOG.md).
+- To release: bump `version` in `pyproject.toml` in a PR. Merging it to `main` creates the tag and a GitHub Release.
+- Every tag points at an exact commit, so `vX.Y.Z` is the trace reference for issues and PRs.
 
 ## Repository governance and templates
 
