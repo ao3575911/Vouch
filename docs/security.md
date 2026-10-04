@@ -20,8 +20,8 @@ from a registry copy you trust:
 
 - In Python, `verify_proof_for_handle(proof, registry)` does that, and
   `Registry.resolve()` checks the manifest key against the event log.
-- `web/verify.html` needs the manifest pasted in. Without it the result is
-  amber "unpinned".
+- The [browser verifier](verify.html) checks the pasted manifest's signature,
+  but not the log. Without a manifest the result is amber "unpinned".
 
 ## What to trust
 

@@ -79,6 +79,17 @@
     "updated_at": 1759550400.5,
     "version": 1
   },
+  "manifest_whole_ts": {
+    "agents": [],
+    "created_at": 1759550400.0,
+    "did": "did:home:adam",
+    "handle": "adam",
+    "root_public_key": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+    "services": [],
+    "signature": "0dcfe902b32a0e724acb6fb1b378c899f19648313695e9f9c5e38d9a4a719fa4650f8c411dc6f46d443ee28623e5561476141a312047c34faae1c9da67646c09",
+    "updated_at": 1759550400.0,
+    "version": 1
+  },
   "proof": {
     "did": "did:home:adam",
     "handle": "adam",

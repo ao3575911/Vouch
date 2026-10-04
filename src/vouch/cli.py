@@ -8,7 +8,7 @@
     vouch-id check msg.json         check a signed message is genuine
     vouch-id takeout @adam ...      take your whole identity with you
     vouch-id audit                  check the whole registry is untampered
-    vouch-id card @adam             printable proof card (web/verify.html checks it)
+    vouch-id card @adam             printable proof card, checked in the browser verifier
     vouch-id guardians @adam @sam @kim --threshold 2   people who can rescue your name
     vouch-id recover-start / approve-recovery / recover   the rescue ceremony
 

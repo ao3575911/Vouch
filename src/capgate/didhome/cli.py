@@ -35,7 +35,7 @@ from cryptography.hazmat.primitives.serialization import (
 from capgate.didhome.delegation import CapabilityToken, issue_capability_token
 from capgate.didhome.manifest import create_manifest, update_manifest, validate_handle
 from capgate.didhome.ping import Ping, create_ping, verify_ping
-from capgate.didhome.proof import card_html, create_proof
+from capgate.didhome.proof import VERIFY_URL, card_html, create_proof
 from capgate.didhome.recovery import approve_recovery
 from capgate.didhome.registry import Registry, export_bundle
 
@@ -241,7 +241,7 @@ def cmd_card(args: argparse.Namespace) -> None:
     out = Path(args.out) if args.out else Path(f"{name}.card.html")
     out.write_text(card_html(proof), encoding="utf-8")
     print(f"printable card for @{name}: {out}")
-    print("verify it offline with web/verify.html")
+    print(f"verify it at {VERIFY_URL} (works offline once loaded)")
 
 
 def cmd_set_guardians(args: argparse.Namespace) -> None:
@@ -341,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("verify-registry", help="offline-verify the whole registry (CI gate)")
     p.set_defaults(func=cmd_verify_registry)
 
-    p = sub.add_parser("card", help="emit a printable proof card (verify with web/verify.html)")
+    p = sub.add_parser("card", help=f"emit a printable proof card (verify at {VERIFY_URL})")
     p.add_argument("handle")
     p.add_argument("--statement", default="this is my name", help="what the card proves")
     p.add_argument("--out", help="output HTML file")

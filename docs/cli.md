@@ -62,8 +62,9 @@ The default statement is "this is my name". For a QR code on the card,
 install the extra:
 `pip install "vouch-id[qr] @ https://github.com/ao3575911/vouch-id/releases/download/v0.3.1/vouch_id-0.3.1-py3-none-any.whl"`.
 
-To check a card, open `web/verify.html` from the repo. It's a single static
-file you can host anywhere or use offline, and it doesn't phone home. Paste
+To check a card, open the [browser verifier](https://ao3575911.github.io/vouch-id/verify.html). It's a single static
+page that doesn't phone home; save it to use offline. The wheel ships a copy
+(`verify.html` in the `vouch` package). Paste
 the card's JSON and the handle's manifest (`names/adam.json`) from a registry
 copy you trust. Without the manifest the page shows an amber "unpinned"
 result, because anyone can sign a proof that names any handle. In Python, use
