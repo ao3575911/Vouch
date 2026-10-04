@@ -2,6 +2,11 @@
 
 Prepared to open and track the first community/governance work items.
 
+Status (4 Oct 2026): items 2, 3, 4 and 5 are done (CONTRIBUTING.md, the
+3.10-3.12 CI matrix, pre-commit, and OIDC rate limiting in #8). Item 1 is
+#21, item 6 is #22, the starter discussions are #23. Labels and topics below
+are applied. The rest of the backlog lives in GitHub issues.
+
 ## Issues to open (6)
 
 1. **Enforce CODEOWNERS review on `main`**
