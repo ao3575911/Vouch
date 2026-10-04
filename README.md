@@ -75,6 +75,8 @@ re-verifies offline (`vouch audit`). Guardianship: a parent issues a
 scoped child identity with the same permission-slip machinery.
 
 Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md).
+Isolated capgate demo: [`docs/isolation.md`](./docs/isolation.md). OIDC
+deployment limits: [`docs/oidc-deployment.md`](./docs/oidc-deployment.md).
 
 ## Versioning and traceability
 
@@ -112,6 +114,8 @@ hash-chained logs):
 # capgate (internal engine)
 
 **Research preview — not production-grade.** Fail-closed capability-token MCP tool gate.
+The isolated Unix-socket gateway and hostile-agent Docker demo are exercised
+in CI; they do not by themselves establish production readiness.
 
 ## Invariant
 
@@ -185,8 +189,9 @@ chain tampering are all proven denied/detected.
 - [x] Phase 1 — harness/executor split (in-process reference implementation)
 - [ ] Phase 1 — process/network isolation (agent egress limited to the harness proxy)
 - [x] Phase 2 — adversarial test suite
-- [ ] Phase 2 — docker compose demo with hostile agent + network policy
-- [ ] Phase 3 — production claim (blocked until the above pass in CI)
+- [x] Phase 1 — Unix-socket process boundary; agent network egress disabled in the demo
+- [x] Phase 2 — docker compose demo with hostile agent + restrictive container policy
+- [ ] Phase 3 — production claim (requires independent security review and operational readiness)
 
 Kill list: no dashboards, no extra agents, no "AI policy" layer. Nothing
 ships unless it moves the enforcement boundary.

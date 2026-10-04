@@ -1,5 +1,7 @@
 """Social recovery + guardianship: the ceremony works and resists abuse."""
 
+import shutil
+
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -34,6 +36,24 @@ def test_recovery_rotates_root_key(world):
     registry.recover("adam", new_key, _approvals(registry, keys, new_pub))
     assert registry.resolve("adam").root_public_key == new_pub
     registry.verify()  # whole log, including rotation, verifies offline
+
+
+def test_registry_mirror_tracks_recovery_and_key_rotation(world, tmp_path):
+    registry, keys = world
+    mirror_path = tmp_path / "mirror"
+    shutil.copytree(registry.root, mirror_path)
+    mirror = Registry(mirror_path)
+    assert mirror.verify() == registry.verify()
+
+    new_key = Ed25519PrivateKey.generate()
+    new_pub = public_key_hex(new_key.public_key())
+    registry.recover("adam", new_key, _approvals(registry, keys, new_pub))
+
+    shutil.rmtree(mirror_path)
+    shutil.copytree(registry.root, mirror_path)
+    mirror = Registry(mirror_path)
+    assert mirror.verify() == registry.verify()
+    assert mirror.resolve("adam").root_public_key == new_pub
 
 
 def test_recovered_key_can_keep_mutating(world):

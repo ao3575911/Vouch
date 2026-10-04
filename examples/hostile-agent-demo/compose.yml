@@ -1,0 +1,74 @@
+services:
+  ipc-init:
+    build:
+      context: ../..
+      dockerfile: examples/hostile-agent-demo/Dockerfile
+    command:
+      - python
+      - -c
+      - "import os; os.chmod('/run/capgate', 0o777)"
+    volumes:
+      - ipc:/run/capgate
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "0:0"
+
+  harness:
+    build:
+      context: ../..
+      dockerfile: examples/hostile-agent-demo/Dockerfile
+    command: ["python", "examples/hostile-agent-demo/harness.py"]
+    environment:
+      CAPGATE_SOCKET: /run/capgate/harness.sock
+      CAPGATE_AUDIT: /state/audit.jsonl
+    volumes:
+      - ipc:/run/capgate
+    depends_on:
+      ipc-init:
+        condition: service_completed_successfully
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /state:size=1m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 128m
+    user: "10001:10001"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/capgate/harness.sock'); s.close()"
+      interval: 1s
+      timeout: 1s
+      retries: 20
+
+  hostile-agent:
+    build:
+      context: ../..
+      dockerfile: examples/hostile-agent-demo/Dockerfile
+    command: ["python", "examples/hostile-agent-demo/hostile_agent.py"]
+    environment:
+      CAPGATE_SOCKET: /run/capgate/harness.sock
+    depends_on:
+      harness:
+        condition: service_healthy
+    volumes:
+      - ipc:/run/capgate:ro
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 16
+    mem_limit: 64m
+    cpus: 0.5
+    user: "10001:10001"
+
+volumes:
+  ipc:
