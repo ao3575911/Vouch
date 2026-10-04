@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vouch-id"
-version = "0.2.0"
+version = "0.3.0"
 description = "Vouch: a portable handle you own, login with it, and signed statements anyone can check offline"
 readme = "README.md"
 license = {file = "LICENSE"}

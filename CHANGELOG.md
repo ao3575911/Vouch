@@ -4,12 +4,15 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+## v0.3.0 (2026-10-04)
+
+- **Breaking:** the CLI command is now `vouch-id` (was `vouch`), e.g. `vouch-id get @adam`. There is no `vouch` alias. The import package stays `vouch`.
+- Repo renamed to `ao3575911/vouch-id`. GitHub redirects the old URLs.
 - Proof verification pins the key to the registry (`verify_proof_for_handle`); `web/verify.html` shows "unpinned" without a manifest.
 - `Registry.resolve()` checks the manifest key against the event log; the OIDC bridge verifies the registry at startup.
 - OIDC bridge: integer `issued_at` with skew limits, expiring nonces and state caps, threaded server with timeouts, URL-encoded redirect, `--trusted-proxy`.
 - Browser and Python canonical JSON agree for non-ASCII, with shared test vectors.
 - Distribution renamed to `vouch-id`; import name stays `vouch`. Scope recorded in `docs/adr-0001-scope.md`; capgate docs moved to `docs/capgate.md`.
-- Repo renamed to `ao3575911/vouch-id` and the CLI to `vouch-id`. The `vouch` command is gone; run `vouch-id` instead.
 
 ## v0.2.0 (2026-10-04)
 
