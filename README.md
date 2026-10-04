@@ -38,6 +38,23 @@ agent (proposes) ──► harness (deterministic policy + Ed25519 permit signer
   single-use nonce, agent identity, and call hash before any tool runs.
   Holds tool credentials; the agent never sees them.
 
+## did:home — free, local-first DID namespace for agents
+
+Built on the same primitives (Ed25519, canonical JSON, hash-chained logs):
+`@adam` → `did:home:adam`, a self-signed manifest in a static, forkable
+registry. Utility = capability-scoped delegation (`cal@adam` acts for
+`@adam` with exactly the granted permissions) + signed replay-proof pings.
+No VM, no mail, no storage, no billing.
+
+```bash
+python -m capgate.didhome --registry ./registry claim @adam
+python -m capgate.didhome --registry ./registry delegate @adam cal ping:send
+python -m capgate.didhome --registry ./registry verify-registry
+```
+
+Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md). Code:
+`src/capgate/didhome/` (manifest, registry, delegation, ping, cli).
+
 ## Try it
 
 ```bash
