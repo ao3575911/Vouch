@@ -11,7 +11,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from capgate.didhome.manifest import create_manifest
 from capgate.didhome.proof import ProofError, card_html, create_proof, verify_proof
 from capgate.didhome.registry import Registry
-from vouch.oidc import OIDCError, OIDCProvider, _make_handler, decode_jwt
+from vouch.oidc import (
+    MAX_REQUEST_BODY_BYTES,
+    OIDCError,
+    OIDCProvider,
+    _make_handler,
+    decode_jwt,
+)
 
 
 @pytest.fixture
@@ -233,3 +239,81 @@ def test_authorize_http_rate_limit_is_not_double_consumed(
     response = connection.getresponse()
     assert response.status == 200
     connection.close()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "method", "path", "body", "first_status"),
+    [
+        ("authorize", "POST", "/authorize", "{}", 400),
+        ("token", "POST", "/token", "", 400),
+        ("userinfo", "GET", "/userinfo", None, 401),
+    ],
+)
+def test_http_rate_limits_return_429_with_retry_after(
+    provider, oidc_http_server, endpoint, method, path, body, first_status
+):
+    provider.rate_limits[endpoint] = 1
+    connection = HTTPConnection(*oidc_http_server)
+    connection.request(method, path, body)
+    first_response = connection.getresponse()
+    first_response.read()
+    assert first_response.status == first_status
+
+    connection.request(method, path, body)
+    response = connection.getresponse()
+    response.read()
+    assert response.status == 429
+    assert int(response.getheader("Retry-After")) >= 1
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("content_length", "expected_status"),
+    [
+        ("-1", 400),
+        (str(MAX_REQUEST_BODY_BYTES + 1), 413),
+    ],
+)
+def test_http_rejects_invalid_or_oversized_content_length(
+    oidc_http_server, content_length, expected_status
+):
+    connection = HTTPConnection(*oidc_http_server, timeout=1)
+    connection.request(
+        "POST", "/authorize", headers={"Content-Length": content_length}
+    )
+    response = connection.getresponse()
+    response.read()
+    assert response.status == expected_status
+    connection.close()
+
+
+def test_http_rate_limit_uses_configured_client_identity(provider):
+    provider.rate_limits["authorize"] = 1
+    server = HTTPServer(
+        ("127.0.0.1", 0),
+        _make_handler(
+            provider,
+            limiter_key=lambda request: request.headers.get("X-Trusted-Client", ""),
+        ),
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = HTTPConnection(*server.server_address)
+    try:
+        statuses = []
+        for identity in ("client-a", "client-b", "client-a"):
+            connection.request(
+                "POST",
+                "/authorize",
+                "{}",
+                headers={"X-Trusted-Client": identity},
+            )
+            response = connection.getresponse()
+            response.read()
+            statuses.append(response.status)
+        assert statuses == [400, 400, 429]
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join()

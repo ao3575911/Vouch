@@ -19,9 +19,11 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import secrets
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -42,10 +44,19 @@ TOKEN_TTL_SECONDS = 3600
 RATE_LIMIT_WINDOW_SECONDS = 60
 DEFAULT_RATE_LIMITS = {"authorize": 20, "token": 30, "userinfo": 60}
 MAX_RATE_LIMIT_BUCKETS = 10_000
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
 
 class OIDCError(ValueError):
     """Raised on a rejected OIDC request."""
+
+
+class RateLimitError(OIDCError):
+    """Raised when an OIDC endpoint's rate limit has been exceeded."""
+
+    def __init__(self, endpoint: str, retry_after: float) -> None:
+        self.retry_after = max(1, math.ceil(retry_after))
+        super().__init__(f"rate limit exceeded for {endpoint}")
 
 
 def _b64url(data: bytes) -> str:
@@ -150,7 +161,9 @@ class OIDCProvider:
         limit = self.rate_limits.get(endpoint, 0)
         if limit and len(events) >= limit:
             self._rate_events[bucket_key] = events
-            raise OIDCError(f"rate limit exceeded for {endpoint}")
+            raise RateLimitError(
+                endpoint, events[0] + self.rate_limit_window_seconds - current
+            )
         if not limit:
             return
         events.append(current)
@@ -276,15 +289,30 @@ class OIDCProvider:
         }
 
 
-def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
+def _make_handler(
+    provider: OIDCProvider,
+    limiter_key: Callable[[BaseHTTPRequestHandler], str] | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    """Build a handler with an optional trusted client-identity callback."""
+
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, status: int, body: dict[str, Any]) -> None:
+        def _send(
+            self,
+            status: int,
+            body: dict[str, Any],
+            headers: dict[str, str] | None = None,
+        ) -> None:
             data = json.dumps(body).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
+
+        def _rate_limit_key(self) -> str:
+            return limiter_key(self) if limiter_key else self.client_address[0]
 
         def do_GET(self) -> None:
             path = urlparse(self.path).path
@@ -298,8 +326,14 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                         200,
                         provider.userinfo(
                             self.headers.get("Authorization", ""),
-                            limiter_key=self.client_address[0],
+                            limiter_key=self._rate_limit_key(),
                         ),
+                    )
+                except RateLimitError as exc:
+                    self._send(
+                        429,
+                        {"error": str(exc)},
+                        {"Retry-After": str(exc.retry_after)},
                     )
                 except OIDCError as exc:
                     self._send(401, {"error": str(exc)})
@@ -316,12 +350,24 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
             # malformed or oversized requests still count against it.
             current = time.time()
             try:
-                provider._consume_rate_limit(endpoint, self.client_address[0], current)
+                provider._consume_rate_limit(endpoint, self._rate_limit_key(), current)
+            except RateLimitError as exc:
+                self._send(
+                    429,
+                    {"error": str(exc)},
+                    {"Retry-After": str(exc.retry_after)},
+                )
+                return
             except OIDCError as exc:
                 self._send(400, {"error": str(exc)})
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
+                if length < 0:
+                    raise OIDCError("invalid Content-Length")
+                if length > MAX_REQUEST_BODY_BYTES:
+                    self._send(413, {"error": "request body too large"})
+                    return
                 raw = self.rfile.read(length).decode("utf-8")
                 if endpoint == "authorize":
                     body = json.loads(raw)
@@ -352,6 +398,12 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                             current,
                         ),
                     )
+            except RateLimitError as exc:
+                self._send(
+                    429,
+                    {"error": str(exc)},
+                    {"Retry-After": str(exc.retry_after)},
+                )
             except (OIDCError, KeyError, ValueError) as exc:
                 self._send(400, {"error": str(exc)})
 
