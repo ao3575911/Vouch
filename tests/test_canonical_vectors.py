@@ -32,3 +32,18 @@ def test_forged_proof_vector_fails_pinned():
     verify_proof(forged)  # self-consistent, but not adam's registry key
     with pytest.raises(ProofError, match="unexpected key"):
         verify_proof(forged, expected_public_key=manifest.root_public_key)
+
+
+def test_whole_number_timestamp_manifest_vector_verifies():
+    data = VECTORS["manifest_whole_ts"]
+    assert data["created_at"] == 1759550400.0
+    verify_manifest(Manifest.from_dict(json.loads(json.dumps(data))))
+
+
+def test_verifier_page_ships_in_the_package():
+    from importlib.resources import files
+
+    docs = Path(__file__).parent.parent / "docs" / "verify.html"
+    packaged = files("vouch").joinpath("verify.html")
+    assert packaged.is_file()
+    assert packaged.read_text(encoding="utf-8") == docs.read_text(encoding="utf-8")

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vouch — verify a proof offline</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
+h1{font-size:1.4rem}
+textarea{width:100%;height:10rem;font-family:monospace;font-size:.8rem}
+#manifest{height:6rem}
+button{font-size:1rem;padding:.5rem 1.2rem;margin-top:.5rem;cursor:pointer}
+#result{margin-top:1rem;padding:1rem;border-radius:8px;font-size:1.2rem;display:none}
+.ok{background:#e6f7e6;border:2px solid #2a2;color:#161}
+.warn{background:#fff4e0;border:2px solid #d98a00;color:#7a4b00}
+.bad{background:#fde8e8;border:2px solid #c22;color:#811}
+.hint{color:#555;font-size:.85rem}
+</style>
+</head>
+<body>
+<h1>Vouch — verify a proof</h1>
+<p id="instructions" class="hint">Paste proof JSON (or the text behind a
+card's QR), then choose Verify. The check runs entirely in this page —
+offline, nobody is called, nothing is logged.</p>
+<p id="limits" class="hint">A valid signature proves that the listed key
+signed the statement. It does not independently prove that the statement is
+true or that an issuer verified it.</p>
+<label for="proof">Proof JSON</label>
+<textarea id="proof" aria-describedby="instructions limits"
+placeholder='{"did":"did:home:adam", ... }'></textarea>
+<label for="manifest">Manifest JSON or public key from the registry (optional)</label>
+<textarea id="manifest" aria-describedby="pinhint"
+placeholder='contents of names/adam.json, or the 64-hex root public key'></textarea>
+<p id="pinhint" class="hint">Anyone can sign a proof that names any handle
+with their own key. Paste the handle's manifest from a registry copy you
+trust (for example <code>vouch-id show @adam</code>) to check the key. The page
+checks the manifest's own signature but can't see the registry's log, so use a
+copy you trust (<code>vouch-id audit</code> checks the log). Without a manifest
+the result is unpinned.</p>
+<br><button id="go" type="button">Verify</button>
+<div id="result" role="status" aria-live="polite" aria-atomic="true"></div>
+<script id="vouch-core">
+// Canonical JSON matching Python json.dumps(sort_keys=True,
+// separators=(",", ":")) with its default ensure_ascii=True.
+function escapeNonAscii(text){
+  return text.replace(/[\u007f-\uffff]/g,
+    c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+// floatKeys: top-level keys that Python stores as floats (manifest timestamps).
+function canonical(obj, floatKeys){
+  if (Array.isArray(obj)) return "[" + obj.map(v => canonical(v)).join(",") + "]";
+  if (obj !== null && typeof obj === "object"){
+    return "{" + Object.keys(obj).sort().map(
+      k => escapeNonAscii(JSON.stringify(k)) + ":" +
+        (floatKeys && floatKeys.includes(k) ? pyFloat(obj[k]) : canonical(obj[k]))).join(",") + "}";
+  }
+  if (typeof obj === "number" && !Number.isSafeInteger(obj)){
+    throw new Error("non-integer number in proof");
+  }
+  if (typeof obj === "string") return escapeNonAscii(JSON.stringify(obj));
+  return JSON.stringify(obj);
+}
+// Python's repr of a float, for the range timestamps use.
+function pyFloat(n){
+  if (typeof n !== "number" || !Number.isFinite(n) || Math.abs(n) >= 1e16){
+    throw new Error("unsupported timestamp");
+  }
+  if (Number.isInteger(n)) return n.toFixed(1);
+  const s = String(n);
+  if (/e/i.test(s)) throw new Error("unsupported timestamp");
+  return s;
+}
+function fromHex(hex){
+  if (typeof hex !== "string" || !/^([0-9a-f]{2})*$/i.test(hex)){
+    throw new Error("malformed hex");
+  }
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+async function edVerify(publicHex, sigHex, text){
+  const key = await crypto.subtle.importKey(
+    "raw", fromHex(publicHex), {name: "Ed25519"}, false, ["verify"]);
+  return crypto.subtle.verify(
+    {name: "Ed25519"}, key, fromHex(sigHex), new TextEncoder().encode(text));
+}
+// Checks a manifest's self-signature. Throws if it doesn't verify.
+async function checkManifest(m){
+  if (typeof m.handle !== "string" || m.did !== "did:home:" + m.handle){
+    throw new Error("manifest did does not match handle");
+  }
+  if (typeof m.root_public_key !== "string" || !/^[0-9a-f]{64}$/i.test(m.root_public_key)){
+    throw new Error("manifest has a malformed key");
+  }
+  const unsigned = Object.fromEntries(
+    Object.entries(m).filter(([k]) => k !== "signature"));
+  const payload = canonical(unsigned, ["created_at", "updated_at"]);
+  if (!(await edVerify(m.root_public_key, m.signature, payload))){
+    throw new Error("manifest signature invalid");
+  }
+}
+// pinned: manifest object, 64-hex key string, or null.
+// Returns {level: "ok" | "warn" | "bad", text}.
+async function checkProof(proof, pinned){
+  try {
+    if (typeof proof.handle !== "string" || proof.did !== "did:home:" + proof.handle){
+      throw new Error("did does not match handle");
+    }
+    const unsigned = Object.fromEntries(
+      Object.entries(proof).filter(([k]) => k !== "signature"));
+    if (!(await edVerify(proof.public_key, proof.signature, canonical(unsigned)))){
+      throw new Error("signature invalid");
+    }
+    const label = "@" + proof.handle + ": " + proof.statement;
+    if (pinned === null || pinned === undefined){
+      return {level: "warn", text: "\u26a0 unpinned \u2014 key " +
+        proof.public_key.slice(0, 16) + "\u2026 signed \u201c" + label +
+        "\u201d. Not checked against the registry."};
+    }
+    let expected = pinned;
+    if (typeof pinned === "object"){
+      if (pinned.did !== proof.did || pinned.handle !== proof.handle){
+        throw new Error("manifest is for a different handle");
+      }
+      await checkManifest(pinned);
+      expected = pinned.root_public_key;
+    }
+    if (typeof expected !== "string" || expected.toLowerCase() !== proof.public_key.toLowerCase()){
+      throw new Error("signed by a key that is not the registry key");
+    }
+    return {level: "ok", text: "\u2713 genuine \u2014 " + label};
+  } catch (e) {
+    return {level: "bad", text: "\u2717 not verified \u2014 " + e.message};
+  }
+}
+</script>
+<script>
+function readPinned(){
+  const raw = document.getElementById("manifest").value.trim();
+  if (!raw) return null;
+  if (/^[0-9a-f]{64}$/i.test(raw)) return raw;
+  return JSON.parse(raw);
+}
+async function verify(){
+  const el = document.getElementById("result");
+  el.style.display = "block";
+  let result;
+  try {
+    result = await checkProof(
+      JSON.parse(document.getElementById("proof").value), readPinned());
+  } catch (e) {
+    result = {level: "bad", text: "\u2717 not verified \u2014 " + e.message};
+  }
+  el.className = result.level;
+  el.textContent = result.text;
+}
+document.getElementById("go").addEventListener("click", verify);
+</script>
+</body>
+</html>
