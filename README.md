@@ -87,11 +87,13 @@ Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md)
 ## Repository governance and templates
 
 - CODEOWNERS: [`.github/CODEOWNERS`](./.github/CODEOWNERS)
+- Contributing guide: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 - Contributor guide: [`CONTRIBUTORS.md`](./CONTRIBUTORS.md)
 - Security policy: [`SECURITY.md`](./SECURITY.md)
 - Threat model: [`THREATMODEL.md`](./THREATMODEL.md)
 - Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
 - Issue templates: [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE)
+- Hygiene bootstrap backlog: [`docs/repo-hygiene-bootstrap.md`](./docs/repo-hygiene-bootstrap.md)
 - Copilot repository instructions: [`.github/copilot-instructions.md`](./.github/copilot-instructions.md)
 - Settings-as-code baseline: [`.github/settings.yml`](./.github/settings.yml)
 

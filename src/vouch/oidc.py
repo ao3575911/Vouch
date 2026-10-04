@@ -21,6 +21,7 @@ import base64
 import json
 import secrets
 import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -38,6 +39,8 @@ from capgate.didhome.registry import Registry, RegistryError
 PROOF_MAX_AGE_SECONDS = 300
 CODE_TTL_SECONDS = 120
 TOKEN_TTL_SECONDS = 3600
+RATE_LIMIT_WINDOW_SECONDS = 60
+DEFAULT_RATE_LIMITS = {"authorize": 20, "token": 30, "userinfo": 60}
 
 
 class OIDCError(ValueError):
@@ -92,6 +95,9 @@ class OIDCProvider:
     _codes: dict[str, _Code] = field(default_factory=dict)
     _access_tokens: dict[str, dict[str, Any]] = field(default_factory=dict)
     _seen_proof_nonces: set[str] = field(default_factory=set)
+    rate_limit_window_seconds: int = RATE_LIMIT_WINDOW_SECONDS
+    rate_limits: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
+    _rate_events: dict[tuple[str, str], list[float]] = field(default_factory=lambda: defaultdict(list))
 
     @property
     def kid(self) -> str:
@@ -126,6 +132,17 @@ class OIDCProvider:
         """What the user must sign (with ``vouch card``) to log in."""
         return f"login:{client_id}"
 
+    def _consume_rate_limit(self, endpoint: str, limiter_key: str, current: float) -> None:
+        bucket_key = (endpoint, limiter_key or "global")
+        events = self._rate_events[bucket_key]
+        window_start = current - self.rate_limit_window_seconds
+        while events and events[0] <= window_start:
+            events.pop(0)
+        limit = self.rate_limits.get(endpoint, 0)
+        if limit and len(events) >= limit:
+            raise OIDCError(f"rate limit exceeded for {endpoint}")
+        events.append(current)
+
     def authorize(
         self,
         client_id: str,
@@ -133,9 +150,11 @@ class OIDCProvider:
         proof: dict[str, Any],
         nonce: str = "",
         now: float | None = None,
+        limiter_key: str = "",
     ) -> str:
         """Validate a did:home login proof; return a one-time code."""
         current = time.time() if now is None else now
+        self._consume_rate_limit("authorize", limiter_key or client_id, current)
         if self.clients.get(client_id) != redirect_uri:
             raise OIDCError("unknown client_id or redirect_uri mismatch")
         handle = str(proof.get("handle", ""))
@@ -169,9 +188,11 @@ class OIDCProvider:
         client_id: str,
         redirect_uri: str,
         now: float | None = None,
+        limiter_key: str = "",
     ) -> dict[str, Any]:
         """Exchange a one-time code for an EdDSA-signed ID token."""
         current = time.time() if now is None else now
+        self._consume_rate_limit("token", limiter_key or client_id, current)
         if grant_type != "authorization_code":
             raise OIDCError("unsupported grant_type")
         grant = self._codes.pop(code, None)
@@ -203,8 +224,11 @@ class OIDCProvider:
             "id_token": encode_jwt(claims, self.signing_key, self.kid),
         }
 
-    def userinfo(self, authorization: str, now: float | None = None) -> dict[str, Any]:
+    def userinfo(
+        self, authorization: str, now: float | None = None, limiter_key: str = ""
+    ) -> dict[str, Any]:
         current = time.time() if now is None else now
+        self._consume_rate_limit("userinfo", limiter_key or "bearer", current)
         if not authorization.startswith("Bearer "):
             raise OIDCError("missing bearer token")
         info = self._access_tokens.get(authorization.removeprefix("Bearer "))
@@ -235,7 +259,13 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                 self._send(200, provider.jwks())
             elif path == "/userinfo":
                 try:
-                    self._send(200, provider.userinfo(self.headers.get("Authorization", "")))
+                    self._send(
+                        200,
+                        provider.userinfo(
+                            self.headers.get("Authorization", ""),
+                            limiter_key=self.client_address[0],
+                        ),
+                    )
                 except OIDCError as exc:
                     self._send(401, {"error": str(exc)})
             else:
@@ -253,6 +283,7 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                         body["redirect_uri"],
                         body["proof"],
                         nonce=body.get("nonce", ""),
+                        limiter_key=self.client_address[0],
                     )
                     self._send(
                         200,
@@ -271,6 +302,7 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                             form.get("code", ""),
                             form.get("client_id", ""),
                             form.get("redirect_uri", ""),
+                            limiter_key=self.client_address[0],
                         ),
                     )
                 else:

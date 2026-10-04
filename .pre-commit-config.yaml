@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check src tests
+        language: system
+        pass_filenames: false
+      - id: pytest-smoke
+        name: pytest smoke
+        entry: pytest -q tests/test_vouch.py
+        language: system
+        pass_filenames: false

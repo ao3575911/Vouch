@@ -149,3 +149,29 @@ def test_userinfo_requires_valid_bearer(provider):
         provider.userinfo("")
     with pytest.raises(OIDCError, match="invalid or expired"):
         provider.userinfo("Bearer " + "nope")
+
+
+def test_authorize_rate_limited(world, provider):
+    provider.rate_limits["authorize"] = 2
+    provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip1")
+    provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip1")
+    with pytest.raises(OIDCError, match="rate limit exceeded for authorize"):
+        provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip1")
+
+
+def test_token_rate_limited(world, provider):
+    provider.rate_limits["token"] = 1
+    code1 = provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip2")
+    provider.token("authorization_code", code1, CLIENT, REDIRECT, limiter_key="ip2")
+    code2 = provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip2")
+    with pytest.raises(OIDCError, match="rate limit exceeded for token"):
+        provider.token("authorization_code", code2, CLIENT, REDIRECT, limiter_key="ip2")
+
+
+def test_userinfo_rate_limited(world, provider):
+    provider.rate_limits["userinfo"] = 1
+    code = provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip3")
+    tokens = provider.token("authorization_code", code, CLIENT, REDIRECT, limiter_key="ip3")
+    provider.userinfo("Bearer " + tokens["access_token"], limiter_key="ip3")
+    with pytest.raises(OIDCError, match="rate limit exceeded for userinfo"):
+        provider.userinfo("Bearer " + tokens["access_token"], limiter_key="ip3")

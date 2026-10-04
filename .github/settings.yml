@@ -2,6 +2,16 @@ repository:
   name: vouch
   description: "Vouch: your name, your key, your proof — local-first identity with signed proofs, auditable logs, and strict capability gating."
   default_branch: main
+  topics:
+    - identity
+    - did
+    - self-sovereign-identity
+    - oidc
+    - ed25519
+    - offline-verification
+    - security
+    - python
+    - privacy
   has_issues: true
   has_projects: true
   has_wiki: false
@@ -15,12 +25,71 @@ branches:
   - name: main
     protection:
       required_pull_request_reviews:
-        required_approving_review_count: 0
+        required_approving_review_count: 1
         dismiss_stale_reviews: true
-        require_code_owner_reviews: false
+        require_code_owner_reviews: true
       required_status_checks:
         strict: true
         contexts:
           - test
       enforce_admins: true
       restrictions: null
+
+labels:
+  - name: accessibility
+    color: f143ab
+    description: Barrier affecting people with disabilities
+  - name: blocked
+    color: b60205
+    description: Blocked by dependency or external constraint
+  - name: bug
+    color: d73a4a
+    description: Something isn't working
+  - name: ci
+    color: 0e8a16
+    description: Continuous integration or workflow reliability
+  - name: documentation
+    color: 0075ca
+    description: Improvements or additions to documentation
+  - name: duplicate
+    color: cfd3d7
+    description: This issue or pull request already exists
+  - name: enhancement
+    color: a2eeef
+    description: New feature or request
+  - name: good first issue
+    color: 7057ff
+    description: Good for newcomers
+  - name: governance
+    color: 5319e7
+    description: Repository policy, permissions, and controls
+  - name: help wanted
+    color: 008672
+    description: Extra attention is needed
+  - name: invalid
+    color: e4e669
+    description: This doesn't seem right
+  - name: needs-triage
+    color: fbca04
+    description: Needs initial maintainer triage
+  - name: priority:p0
+    color: b60205
+    description: Highest priority
+  - name: priority:p1
+    color: d93f0b
+    description: High priority
+  - name: priority:p2
+    color: fbca04
+    description: Normal priority
+  - name: question
+    color: d876e3
+    description: Further information is requested
+  - name: roadmap
+    color: 1d76db
+    description: Roadmap planning and milestone alignment
+  - name: security
+    color: b60205
+    description: Security hardening, vulnerabilities, or threat model changes
+  - name: wontfix
+    color: ffffff
+    description: This will not be worked on
