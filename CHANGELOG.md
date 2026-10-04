@@ -4,6 +4,7 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+- Key files are created 0600 atomically. Optional passphrase (`--passphrase` or `VOUCH_ID_PASSPHRASE`) encrypts keys, the recovery key and takeout bundles. `takeout --without-key`.
 - The browser verifier is hosted at https://ao3575911.github.io/vouch-id/verify.html and ships in the wheel. It now checks the pasted manifest's signature, not just its key. Cards and the CLI point at it.
 
 ## v0.3.1 (2026-10-04)

@@ -25,9 +25,11 @@ from a registry copy you trust:
 
 ## What to trust
 
-- **Your keystore.** Private keys stay in `--home` (default `~/.didhome`) as
-  0600 files and never enter the registry. `takeout` bundles include the
-  private key, also written 0600.
+- **Your keystore.** Private keys stay in `--home` (default `~/.didhome`) and
+  never enter the registry. Key files are 0600 from the moment they exist.
+  Set `VOUCH_ID_PASSPHRASE` (or pass `--passphrase` to be prompted) to encrypt
+  new keys, the recovery key and the key in `takeout` bundles.
+  `takeout --without-key` leaves the key out.
 - **Not the registry host.** A host can withhold data (availability) but
   can't forge manifests, events, tokens or pings (integrity).
   `vouch-id audit` re-checks the hash chain, every signature and key

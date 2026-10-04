@@ -363,14 +363,21 @@ class Registry:
         return count
 
 
-def export_bundle(registry: Registry, handle: str, private_key_hex: str) -> dict[str, Any]:
-    """Portable identity bundle: manifest + key + the handle's event history."""
+def export_bundle(
+    registry: Registry, handle: str, private_key: str | None
+) -> dict[str, Any]:
+    """Portable identity bundle: manifest + the handle's event history + key.
+
+    ``private_key`` is raw hex, an encrypted PEM, or None to leave it out.
+    """
     manifest = registry.resolve(handle)
     did = manifest.did
-    return {
+    bundle = {
         "did": did,
         "manifest": manifest.to_dict(),
-        "private_key": private_key_hex,
         "events": [r for r in registry.log.records() if r["agent_id"] == did],
         "exported_at": time.time(),
     }
+    if private_key is not None:
+        bundle["private_key"] = private_key
+    return bundle

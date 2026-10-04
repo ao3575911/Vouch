@@ -11,6 +11,8 @@ vouch-id [--home DIR] [--registry DIR] <command> ...
 
 - `--home` is your keystore, default `~/.didhome`. Keys never go in the registry.
 - `--registry` is the registry folder, default `./registry`.
+- `--passphrase` prompts for a passphrase that encrypts new keys and unlocks
+  encrypted ones. `VOUCH_ID_PASSPHRASE` does the same without a prompt.
 - Global options go before the command.
 
 Every plain-word command maps to an engine command, and both names work.
@@ -45,8 +47,8 @@ vouch-id check ping.json        # ping verified: did:home:adam -> did:home:sam
 vouch-id audit                  # registry OK: 2 handles, 3 events, chain verified
 ```
 
-`takeout` writes your private key into the bundle and warns you to keep it
-secret.
+`takeout` writes your private key into the bundle, encrypted if you use a
+passphrase. `--without-key` leaves it out.
 
 ## Proof cards
 
