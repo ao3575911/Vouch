@@ -65,9 +65,7 @@ def decode_key(text: str, passphrase: str | None) -> Ed25519PrivateKey:
     if not text.startswith(_ENCRYPTED_PEM):
         return _key_from_hex(text)
     if not passphrase:
-        raise SystemExit(
-            f"error: key is encrypted; set {PASSPHRASE_ENV} or pass --passphrase"
-        )
+        raise SystemExit(f"error: key is encrypted; set {PASSPHRASE_ENV} or pass --passphrase")
     try:
         key = load_pem_private_key(text.encode("ascii"), passphrase.encode())
     except ValueError:
@@ -163,9 +161,7 @@ def cmd_delegate(args: argparse.Namespace) -> None:
     manifest = registry.resolve(name)
     subject = f"{args.subject}@{name}"
     subject_key = Ed25519PrivateKey.generate()
-    token = issue_capability_token(
-        manifest.did, root_key, subject, subject_key, args.permissions
-    )
+    token = issue_capability_token(manifest.did, root_key, subject, subject_key, args.permissions)
     agents = [a for a in manifest.agents if a["id"] != subject]
     agents.append(
         {"id": subject, "public_key": token.subject_public_key, "token_id": token.token_id}
@@ -268,9 +264,7 @@ def cmd_approve_recovery(args: argparse.Namespace) -> None:
     guardian_key = _keystore(args).load(guardian)
     registry = Registry(args.registry)
     prior = registry.resolve(args.handle).root_public_key
-    approval = approve_recovery(
-        guardian, guardian_key, args.handle, args.new_public_key, prior
-    )
+    approval = approve_recovery(guardian, guardian_key, args.handle, args.new_public_key, prior)
     out = Path(args.out) if args.out else Path(f"{guardian}.approval.json")
     out.write_text(json.dumps(approval, sort_keys=True, indent=2), encoding="utf-8")
     print(f"approval by @{guardian} for @{validate_handle(args.handle)}: {out}")
@@ -280,9 +274,7 @@ def cmd_recover(args: argparse.Namespace) -> None:
     name = validate_handle(args.handle)
     ks = _keystore(args)
     new_key = ks.load(f"{name}.recovering")
-    approvals = [
-        json.loads(Path(p).read_text(encoding="utf-8")) for p in args.approvals
-    ]
+    approvals = [json.loads(Path(p).read_text(encoding="utf-8")) for p in args.approvals]
     Registry(args.registry).recover(name, new_key, approvals)
     ks.save(name, new_key)
     print(f"recovered @{name}: root key rotated, manifest re-signed")

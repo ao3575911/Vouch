@@ -1,17 +1,17 @@
-"""Minimal self-hostable OIDC provider backed by did:home proofs.
+"""Reference OpenID Connect provider backed by did:home proofs.
 
-"Login with Vouch" for anything that speaks OpenID Connect (WordPress,
-Nextcloud, forums, workplaces). The user proves control of their name by
-signing a login statement with their root key; the bridge checks it
-against the static registry — offline, nothing logged upstream — and
-issues a standard EdDSA-signed ID token.
+"Login with Vouch": the user signs a login statement with their root key, the
+bridge checks it against the static registry and issues an EdDSA-signed ID
+token. A reference implementation, not yet tested with real relying parties.
+The ID token says who logged in (the handle), nothing more.
 
 Run it:
 
     python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
 
-Endpoints: /.well-known/openid-configuration, /jwks.json, /authorize,
-/token, /userinfo. Authorization code flow only; deny by default.
+Endpoints: /.well-known/openid-configuration, /jwks.json, /authorize (GET
+shows the statement to sign, POST takes the proof), /token, /userinfo.
+Authorization code flow with PKCE (S256) only; deny by default.
 
 Behind a reverse proxy, pass ``--trusted-proxy CIDR`` so rate limits key on
 the client address from ``X-Forwarded-For`` rather than the proxy's.
@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import hmac
+import html
 import ipaddress
 import json
 import math
@@ -32,6 +35,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -41,6 +45,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from capgate.didhome.cli import decode_key, encode_key, write_secret
 from capgate.didhome.proof import ProofError, verify_proof_for_handle
 from capgate.didhome.registry import Registry, RegistryError
 
@@ -50,7 +55,7 @@ NONCE_TTL_SECONDS = 2 * PROOF_MAX_AGE_SECONDS
 CODE_TTL_SECONDS = 120
 TOKEN_TTL_SECONDS = 3600
 RATE_LIMIT_WINDOW_SECONDS = 60
-DEFAULT_RATE_LIMITS = {"authorize": 20, "token": 30, "userinfo": 60}
+DEFAULT_RATE_LIMITS = {"begin": 20, "authorize": 20, "token": 30, "userinfo": 60}
 MAX_RATE_LIMIT_BUCKETS = 10_000
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
 MAX_PENDING_CODES = 10_000
@@ -107,6 +112,39 @@ class _Code:
     handle: str
     nonce: str
     expires_at: float
+    code_challenge: str = ""
+
+
+@dataclass
+class _Pending:
+    """A GET /authorize request waiting for its signed login proof."""
+
+    client_id: str
+    redirect_uri: str
+    state: str
+    nonce: str
+    code_challenge: str
+    expires_at: float
+
+
+def pkce_s256(verifier: str) -> str:
+    return _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+
+
+def _valid_pkce_value(value: str) -> bool:
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+    return 43 <= len(value) <= 128 and set(value) <= allowed
+
+
+def load_or_create_signing_key(path: str | Path) -> Ed25519PrivateKey:
+    """The bridge's ID-token key, kept across restarts in a 0600 file."""
+    path = Path(path)
+    if path.exists():
+        return decode_key(path.read_text(encoding="utf-8"), None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    key = Ed25519PrivateKey.generate()
+    write_secret(path, encode_key(key, None))
+    return key
 
 
 @dataclass
@@ -116,15 +154,16 @@ class OIDCProvider:
     registry: Registry
     issuer: str = "http://localhost:9000"
     clients: dict[str, str] = field(default_factory=dict)  # client_id -> redirect_uri
+    # client_id -> secret. Listed clients must authenticate at /token.
+    client_secrets: dict[str, str] = field(default_factory=dict)
     signing_key: Ed25519PrivateKey = field(default_factory=Ed25519PrivateKey.generate)
     _codes: dict[str, _Code] = field(default_factory=dict)
+    _pending: dict[str, _Pending] = field(default_factory=dict)
     _access_tokens: dict[str, dict[str, Any]] = field(default_factory=dict)
     _seen_proof_nonces: dict[tuple[str, str], float] = field(default_factory=dict)
     rate_limit_window_seconds: int = RATE_LIMIT_WINDOW_SECONDS
     rate_limits: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
-    _rate_events: OrderedDict[tuple[str, str], list[float]] = field(
-        default_factory=OrderedDict
-    )
+    _rate_events: OrderedDict[tuple[str, str], list[float]] = field(default_factory=OrderedDict)
     # The HTTP server is threaded; every entry point takes this lock.
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
@@ -145,40 +184,49 @@ class OIDCProvider:
             "grant_types_supported": ["authorization_code"],
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": ["EdDSA"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": [
+                "none",
+                "client_secret_basic",
+                "client_secret_post",
+            ],
+            "scopes_supported": ["openid"],
+            "claims_supported": ["sub", "handle", "preferred_username"],
         }
 
     def jwks(self) -> dict[str, Any]:
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
         raw = self.signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        return {
-            "keys": [{"kty": "OKP", "crv": "Ed25519", "kid": self.kid, "x": _b64url(raw)}]
-        }
+        return {"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": self.kid, "x": _b64url(raw)}]}
 
     # -- authorization code flow -------------------------------------------
 
-    def login_statement(self, client_id: str) -> str:
-        """What the user must sign (with ``vouch-id card``) to log in."""
-        return f"login:{client_id}"
+    def login_statement(self, client_id: str, challenge: str = "") -> str:
+        """What the user signs (with ``vouch-id card``) to log in.
+
+        Bound to this issuer and the client, and to the server's one-time
+        challenge when the login started at GET /authorize.
+        """
+        statement = f"login:{client_id}@{self.issuer}"
+        return f"{statement}#{challenge}" if challenge else statement
 
     def _sweep(self, current: float) -> None:
         """Drop expired codes, access tokens and replay nonces."""
         for code in [c for c, g in self._codes.items() if current > g.expires_at]:
             del self._codes[code]
-        for token in [
-            t for t, info in self._access_tokens.items() if current > info["expires_at"]
-        ]:
+        for token in [t for t, info in self._access_tokens.items() if current > info["expires_at"]]:
             del self._access_tokens[token]
         for key in [k for k, exp in self._seen_proof_nonces.items() if current > exp]:
             del self._seen_proof_nonces[key]
+        for challenge in [c for c, p in self._pending.items() if current > p.expires_at]:
+            del self._pending[challenge]
 
     def _consume_rate_limit(self, endpoint: str, limiter_key: str, current: float) -> None:
         with self._lock:
             self._consume_rate_limit_locked(endpoint, limiter_key, current)
 
-    def _consume_rate_limit_locked(
-        self, endpoint: str, limiter_key: str, current: float
-    ) -> None:
+    def _consume_rate_limit_locked(self, endpoint: str, limiter_key: str, current: float) -> None:
         bucket_key = (endpoint, limiter_key or "global")
         window_start = current - self.rate_limit_window_seconds
         events = self._rate_events.pop(bucket_key, [])
@@ -193,15 +241,79 @@ class OIDCProvider:
         limit = self.rate_limits.get(endpoint, 0)
         if limit and len(events) >= limit:
             self._rate_events[bucket_key] = events
-            raise RateLimitError(
-                endpoint, events[0] + self.rate_limit_window_seconds - current
-            )
+            raise RateLimitError(endpoint, events[0] + self.rate_limit_window_seconds - current)
         if not limit:
             return
         events.append(current)
         self._rate_events[bucket_key] = events
         while len(self._rate_events) > MAX_RATE_LIMIT_BUCKETS:
             self._rate_events.popitem(last=False)
+
+    def begin(
+        self,
+        client_id: str,
+        redirect_uri: str,
+        code_challenge: str,
+        code_challenge_method: str = "S256",
+        state: str = "",
+        nonce: str = "",
+        now: float | None = None,
+    ) -> str:
+        """Start a login (GET /authorize). Returns the one-time challenge."""
+        current = time.time() if now is None else now
+        with self._lock:
+            self._sweep(current)
+            if self.clients.get(client_id) != redirect_uri:
+                raise OIDCError("unknown client_id or redirect_uri mismatch")
+            if code_challenge_method != "S256" or not _valid_pkce_value(code_challenge):
+                raise OIDCError("PKCE with code_challenge_method=S256 is required")
+            if len(self._pending) >= MAX_PENDING_CODES:
+                raise OIDCError("too many pending logins, try again later")
+            challenge = secrets.token_urlsafe(16)
+            self._pending[challenge] = _Pending(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                state=state,
+                nonce=nonce,
+                code_challenge=code_challenge,
+                expires_at=current + PROOF_MAX_AGE_SECONDS,
+            )
+            return challenge
+
+    def complete(
+        self,
+        challenge: str,
+        proof: dict[str, Any],
+        now: float | None = None,
+        limiter_key: str | None = None,
+    ) -> tuple[str, str]:
+        """Finish a login (POST /authorize). Returns (code, redirect URL).
+
+        Pass ``limiter_key`` to charge the authorize rate limit here; the HTTP
+        server charges it before reading the body and passes None.
+        """
+        current = time.time() if now is None else now
+        if limiter_key is not None:
+            self._consume_rate_limit("authorize", limiter_key or "global", current)
+        with self._lock:
+            self._sweep(current)
+            request = self._pending.get(challenge)
+            if request is None:
+                raise OIDCError("unknown or expired login request")
+            code = self._authorize_locked(
+                request.client_id,
+                request.redirect_uri,
+                proof,
+                request.nonce,
+                current,
+                code_challenge=request.code_challenge,
+                challenge=challenge,
+            )
+            del self._pending[challenge]
+        params = {"code": code}
+        if request.state:
+            params["state"] = request.state
+        return code, _redirect_url(request.redirect_uri, params)
 
     def authorize(
         self,
@@ -211,22 +323,15 @@ class OIDCProvider:
         nonce: str = "",
         now: float | None = None,
         limiter_key: str = "",
+        code_challenge: str = "",
     ) -> str:
-        """Validate a did:home login proof; return a one-time code."""
+        """Validate a did:home login proof directly; return a one-time code."""
         current = time.time() if now is None else now
         self._consume_rate_limit("authorize", limiter_key or client_id, current)
-        return self._authorize(client_id, redirect_uri, proof, nonce, current)
-
-    def _authorize(
-        self,
-        client_id: str,
-        redirect_uri: str,
-        proof: dict[str, Any],
-        nonce: str,
-        current: float,
-    ) -> str:
         with self._lock:
-            return self._authorize_locked(client_id, redirect_uri, proof, nonce, current)
+            return self._authorize_locked(
+                client_id, redirect_uri, proof, nonce, current, code_challenge=code_challenge
+            )
 
     def _authorize_locked(
         self,
@@ -235,6 +340,8 @@ class OIDCProvider:
         proof: dict[str, Any],
         nonce: str,
         current: float,
+        code_challenge: str = "",
+        challenge: str = "",
     ) -> str:
         self._sweep(current)
         if self.clients.get(client_id) != redirect_uri:
@@ -243,7 +350,7 @@ class OIDCProvider:
             manifest = verify_proof_for_handle(proof, self.registry)
         except (RegistryError, ProofError, ValueError) as exc:
             raise OIDCError(f"login proof rejected: {exc}") from exc
-        if proof.get("statement") != self.login_statement(client_id):
+        if proof.get("statement") != self.login_statement(client_id, challenge):
             raise OIDCError("proof statement does not authorize this client")
         issued_at = proof.get("issued_at")
         # bool is an int subclass; floats (including NaN and inf) are refused.
@@ -272,6 +379,7 @@ class OIDCProvider:
             handle=manifest.handle,
             nonce=nonce,
             expires_at=current + CODE_TTL_SECONDS,
+            code_challenge=code_challenge,
         )
         return code
 
@@ -283,22 +391,20 @@ class OIDCProvider:
         redirect_uri: str,
         now: float | None = None,
         limiter_key: str = "",
+        code_verifier: str = "",
+        client_secret: str | None = None,
     ) -> dict[str, Any]:
         """Exchange a one-time code for an EdDSA-signed ID token."""
         current = time.time() if now is None else now
         self._consume_rate_limit("token", limiter_key or client_id, current)
-        return self._token(grant_type, code, client_id, redirect_uri, current)
-
-    def _token(
-        self,
-        grant_type: str,
-        code: str,
-        client_id: str,
-        redirect_uri: str,
-        current: float,
-    ) -> dict[str, Any]:
         with self._lock:
-            return self._token_locked(grant_type, code, client_id, redirect_uri, current)
+            return self._token_locked(
+                grant_type, code, client_id, redirect_uri, current, code_verifier, client_secret
+            )
+
+    def _token_locked_entry(self, *args: Any) -> dict[str, Any]:
+        with self._lock:
+            return self._token_locked(*args)
 
     def _token_locked(
         self,
@@ -307,15 +413,26 @@ class OIDCProvider:
         client_id: str,
         redirect_uri: str,
         current: float,
+        code_verifier: str = "",
+        client_secret: str | None = None,
     ) -> dict[str, Any]:
         self._sweep(current)
         if grant_type != "authorization_code":
             raise OIDCError("unsupported grant_type")
+        expected_secret = self.client_secrets.get(client_id)
+        if expected_secret is not None and not hmac.compare_digest(
+            (client_secret or "").encode(), expected_secret.encode()
+        ):
+            raise OIDCError("client authentication failed")
         grant = self._codes.pop(code, None)
         if grant is None or current > grant.expires_at:
             raise OIDCError("invalid or expired code")
         if grant.client_id != client_id or grant.redirect_uri != redirect_uri:
             raise OIDCError("code was issued to a different client")
+        if grant.code_challenge and not hmac.compare_digest(
+            pkce_s256(code_verifier).encode(), grant.code_challenge.encode()
+        ):
+            raise OIDCError("PKCE code_verifier does not match")
         claims = {
             "iss": self.issuer,
             "sub": grant.did,
@@ -383,9 +500,7 @@ def _is_trusted(text: str, trusted: Sequence[Network]) -> bool:
     return addr is not None and any(addr in net for net in trusted)
 
 
-def forwarded_client(
-    peer: str, forwarded_for: Sequence[str], trusted: Sequence[Network]
-) -> str:
+def forwarded_client(peer: str, forwarded_for: Sequence[str], trusted: Sequence[Network]) -> str:
     """The client address to rate-limit on.
 
     ``X-Forwarded-For`` is only read when the socket peer is a trusted proxy.
@@ -422,6 +537,46 @@ def _redirect_url(redirect_uri: str, params: dict[str, str]) -> str:
     return redirect_uri + sep + urlencode(params)
 
 
+_LOGIN_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Log in with Vouch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family: sans-serif; max-width: 40rem; margin: 2rem auto">
+<h1>Log in to {client}</h1>
+<p>Sign this statement with your Vouch key:</p>
+<pre>{command}</pre>
+<p>Paste the JSON it prints below. It works once, for the next five minutes.</p>
+<form method="post" action="/authorize">
+<input type="hidden" name="challenge" value="{challenge}">
+<textarea name="proof" rows="12" cols="70" required></textarea><br>
+<button type="submit">Log in</button>
+</form></body></html>
+"""
+
+
+def login_page(provider: OIDCProvider, client_id: str, challenge: str) -> str:
+    statement = provider.login_statement(client_id, challenge)
+    command = f"vouch-id card @yourname --json --statement '{statement}'"
+    return _LOGIN_PAGE.format(
+        client=html.escape(client_id),
+        command=html.escape(command),
+        challenge=html.escape(challenge),
+    )
+
+
+def _client_auth(headers: Any, form: dict[str, str]) -> tuple[str, str | None]:
+    """client_id and secret from HTTP Basic or the form (RFC 6749 2.3.1)."""
+    auth = headers.get("Authorization", "")
+    if auth.startswith("Basic "):
+        from urllib.parse import unquote
+
+        try:
+            user, _, secret = base64.b64decode(auth[6:]).decode("utf-8").partition(":")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise OIDCError("malformed Basic authorization") from exc
+        return unquote(user), unquote(secret)
+    return form.get("client_id", ""), form.get("client_secret")
+
+
 def _make_handler(
     provider: OIDCProvider,
     limiter_key: Callable[[BaseHTTPRequestHandler], str] | None = None,
@@ -448,12 +603,53 @@ def _make_handler(
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_html(self, status: int, page: str) -> None:
+            data = page.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Security-Policy", "default-src 'none'; form-action 'self'")
+            self.send_header("X-Frame-Options", "DENY")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _redirect(self, location: str) -> None:
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def _rate_limit_key(self) -> str:
             return limiter_key(self) if limiter_key else self.client_address[0]
 
         def do_GET(self) -> None:
-            path = urlparse(self.path).path
-            if path == "/.well-known/openid-configuration":
+            url = urlparse(self.path)
+            path = url.path
+            if path == "/authorize":
+                query = {k: v[0] for k, v in parse_qs(url.query).items()}
+                try:
+                    provider._consume_rate_limit("begin", self._rate_limit_key(), time.time())
+                    if query.get("response_type") != "code":
+                        raise OIDCError("response_type=code is required")
+                    if "openid" not in query.get("scope", "").split():
+                        raise OIDCError("scope must include openid")
+                    challenge = provider.begin(
+                        query.get("client_id", ""),
+                        query.get("redirect_uri", ""),
+                        query.get("code_challenge", ""),
+                        query.get("code_challenge_method", ""),
+                        state=query.get("state", ""),
+                        nonce=query.get("nonce", ""),
+                    )
+                except RateLimitError as exc:
+                    self._send(429, {"error": str(exc)}, {"Retry-After": str(exc.retry_after)})
+                    return
+                except OIDCError as exc:
+                    # Never redirect on a bad client or redirect_uri.
+                    self._send(400, {"error": str(exc)})
+                    return
+                self._send_html(200, login_page(provider, query["client_id"], challenge))
+            elif path == "/.well-known/openid-configuration":
                 self._send(200, provider.discovery())
             elif path == "/jwks.json":
                 self._send(200, provider.jwks())
@@ -506,34 +702,36 @@ def _make_handler(
                     self._send(413, {"error": "request body too large"})
                     return
                 raw = self.rfile.read(length).decode("utf-8")
+                content_type = self.headers.get("Content-Type", "")
                 if endpoint == "authorize":
-                    body = json.loads(raw)
-                    code = provider._authorize(
-                        body["client_id"],
-                        body["redirect_uri"],
-                        body["proof"],
-                        body.get("nonce", ""),
-                        current,
-                    )
-                    params = {"code": code}
-                    if body.get("state"):
-                        params["state"] = str(body["state"])
-                    self._send(
-                        200,
-                        {"code": code, "redirect": _redirect_url(body["redirect_uri"], params)},
-                    )
+                    if content_type.startswith("application/json"):
+                        body = json.loads(raw)
+                        if not isinstance(body, dict):
+                            raise OIDCError("expected a JSON object")
+                        code, location = provider.complete(
+                            str(body["challenge"]), body["proof"], current
+                        )
+                        self._send(200, {"code": code, "redirect": location})
+                    else:
+                        form = {k: v[0] for k, v in parse_qs(raw).items()}
+                        proof = json.loads(form["proof"])
+                        _, location = provider.complete(form["challenge"], proof, current)
+                        self._redirect(location)
                 else:
                     form = {k: v[0] for k, v in parse_qs(raw).items()}
-                    self._send(
-                        200,
-                        provider._token(
-                            form.get("grant_type", ""),
-                            form.get("code", ""),
-                            form.get("client_id", ""),
-                            form.get("redirect_uri", ""),
-                            current,
-                        ),
+                    client_id, client_secret = _client_auth(self.headers, form)
+                    if form.get("client_id") and form["client_id"] != client_id:
+                        raise OIDCError("client_id does not match client authentication")
+                    tokens = provider._token_locked_entry(
+                        form.get("grant_type", ""),
+                        form.get("code", ""),
+                        client_id,
+                        form.get("redirect_uri", ""),
+                        current,
+                        form.get("code_verifier", ""),
+                        client_secret,
                     )
+                    self._send(200, tokens, {"Cache-Control": "no-store", "Pragma": "no-cache"})
             except RateLimitError as exc:
                 self._send(
                     429,
@@ -592,10 +790,28 @@ def make_server(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="vouch-oidc", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="vouch-oidc",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--registry", default="./registry")
-    parser.add_argument("--issuer", default="http://localhost:9000")
+    parser.add_argument(
+        "--issuer", default=None, help="public base URL (default: http://localhost:PORT)"
+    )
     parser.add_argument("--port", type=int, default=9000)
+    parser.add_argument(
+        "--signing-key",
+        default=str(Path.home() / ".didhome" / "oidc-signing.key"),
+        help="ID-token signing key, created at 0600 if missing (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--client-secret-file",
+        action="append",
+        default=[],
+        metavar="CLIENT_ID=PATH",
+        help="require this client to authenticate at /token with the secret in PATH",
+    )
     parser.add_argument(
         "--client",
         action="append",
@@ -616,7 +832,18 @@ def main(argv: list[str] | None = None) -> int:
         trusted = [ipaddress.ip_network(c, strict=False) for c in args.trusted_proxy]
     except ValueError as exc:
         parser.error(f"--trusted-proxy: {exc}")
-    clients = dict(item.split("=", 1) for item in args.client)
+    try:
+        clients = dict(item.split("=", 1) for item in args.client)
+        secret_files = dict(item.split("=", 1) for item in args.client_secret_file)
+    except ValueError:
+        parser.error("--client and --client-secret-file take NAME=VALUE")
+    client_secrets = {
+        cid: Path(path).read_text(encoding="utf-8").strip() for cid, path in secret_files.items()
+    }
+    unknown = set(client_secrets) - set(clients)
+    if unknown:
+        parser.error(f"--client-secret-file for unknown client: {', '.join(sorted(unknown))}")
+    issuer = (args.issuer or f"http://localhost:{args.port}").rstrip("/")
     registry = Registry(args.registry)
     try:
         count = registry.verify()
@@ -624,13 +851,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"registry failed verification, not starting: {exc}", file=sys.stderr)
         return 1
     print(f"registry verified ({count} events)")
-    provider = OIDCProvider(registry, issuer=args.issuer, clients=clients)
+    provider = OIDCProvider(
+        registry,
+        issuer=issuer,
+        clients=clients,
+        client_secrets=client_secrets,
+        signing_key=load_or_create_signing_key(args.signing_key),
+    )
     server = make_server(
         provider,
         port=args.port,
         limiter_key=trusted_proxy_limiter_key(trusted) if trusted else None,
     )
-    print(f"vouch OIDC bridge on {args.issuer} (clients: {', '.join(clients)})")
+    print(f"vouch OIDC bridge on {issuer} (clients: {', '.join(clients)})")
     server.serve_forever()
     return 0
 
