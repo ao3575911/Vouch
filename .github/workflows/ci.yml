@@ -9,16 +9,40 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test-python:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
       - name: Lint
         run: ruff check src tests
       - name: Adversarial test suite
         run: pytest -v
+  isolation-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run hostile-agent isolation demo
+        run: |
+          compose_file=examples/hostile-agent-demo/compose.yml
+          trap 'docker compose -f "$compose_file" down --volumes --remove-orphans' EXIT
+          docker compose -f "$compose_file" build
+          docker compose -f "$compose_file" up --detach --wait harness
+          docker compose -f "$compose_file" run --rm --no-deps hostile-agent
+  test:
+    if: always()
+    needs: [test-python, isolation-demo]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Python and isolation checks
+        run: |
+          test "${{ needs.test-python.result }}" = success
+          test "${{ needs.isolation-demo.result }}" = success

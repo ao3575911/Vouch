@@ -17,12 +17,17 @@ button{font-size:1rem;padding:.5rem 1.2rem;margin-top:.5rem;cursor:pointer}
 </head>
 <body>
 <h1>Vouch — verify a proof</h1>
-<p class="hint">Paste proof JSON (or the text behind a card's QR). The
-check runs entirely in this page — offline, nobody is called, nothing is
-logged. Works in any modern browser (WebCrypto Ed25519).</p>
-<textarea id="proof" placeholder='{"did":"did:home:adam", ... }'></textarea>
-<br><button id="go">Verify</button>
-<div id="result"></div>
+<p id="instructions" class="hint">Paste proof JSON (or the text behind a
+card's QR), then choose Verify. The check runs entirely in this page —
+offline, nobody is called, nothing is logged.</p>
+<p id="limits" class="hint">A valid signature proves that the listed key
+signed the statement. It does not independently prove that the statement is
+true or that an issuer verified it.</p>
+<label for="proof">Proof JSON</label>
+<textarea id="proof" aria-describedby="instructions limits"
+placeholder='{"did":"did:home:adam", ... }'></textarea>
+<br><button id="go" type="button">Verify</button>
+<div id="result" role="status" aria-live="polite" aria-atomic="true"></div>
 <script>
 function canonical(obj){
   if (Array.isArray(obj)) return "[" + obj.map(canonical).join(",") + "]";

@@ -19,8 +19,11 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import secrets
 import time
+from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -38,10 +41,22 @@ from capgate.didhome.registry import Registry, RegistryError
 PROOF_MAX_AGE_SECONDS = 300
 CODE_TTL_SECONDS = 120
 TOKEN_TTL_SECONDS = 3600
+RATE_LIMIT_WINDOW_SECONDS = 60
+DEFAULT_RATE_LIMITS = {"authorize": 20, "token": 30, "userinfo": 60}
+MAX_RATE_LIMIT_BUCKETS = 10_000
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
 
 class OIDCError(ValueError):
     """Raised on a rejected OIDC request."""
+
+
+class RateLimitError(OIDCError):
+    """Raised when an OIDC endpoint's rate limit has been exceeded."""
+
+    def __init__(self, endpoint: str, retry_after: float) -> None:
+        self.retry_after = max(1, math.ceil(retry_after))
+        super().__init__(f"rate limit exceeded for {endpoint}")
 
 
 def _b64url(data: bytes) -> str:
@@ -92,6 +107,11 @@ class OIDCProvider:
     _codes: dict[str, _Code] = field(default_factory=dict)
     _access_tokens: dict[str, dict[str, Any]] = field(default_factory=dict)
     _seen_proof_nonces: set[str] = field(default_factory=set)
+    rate_limit_window_seconds: int = RATE_LIMIT_WINDOW_SECONDS
+    rate_limits: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
+    _rate_events: OrderedDict[tuple[str, str], list[float]] = field(
+        default_factory=OrderedDict
+    )
 
     @property
     def kid(self) -> str:
@@ -126,6 +146,31 @@ class OIDCProvider:
         """What the user must sign (with ``vouch card``) to log in."""
         return f"login:{client_id}"
 
+    def _consume_rate_limit(self, endpoint: str, limiter_key: str, current: float) -> None:
+        bucket_key = (endpoint, limiter_key or "global")
+        window_start = current - self.rate_limit_window_seconds
+        events = self._rate_events.pop(bucket_key, [])
+        while events and events[0] <= window_start:
+            events.pop(0)
+        while self._rate_events:
+            oldest_key = next(iter(self._rate_events))
+            oldest_events = self._rate_events[oldest_key]
+            if oldest_events and oldest_events[-1] > window_start:
+                break
+            self._rate_events.popitem(last=False)
+        limit = self.rate_limits.get(endpoint, 0)
+        if limit and len(events) >= limit:
+            self._rate_events[bucket_key] = events
+            raise RateLimitError(
+                endpoint, events[0] + self.rate_limit_window_seconds - current
+            )
+        if not limit:
+            return
+        events.append(current)
+        self._rate_events[bucket_key] = events
+        while len(self._rate_events) > MAX_RATE_LIMIT_BUCKETS:
+            self._rate_events.popitem(last=False)
+
     def authorize(
         self,
         client_id: str,
@@ -133,9 +178,21 @@ class OIDCProvider:
         proof: dict[str, Any],
         nonce: str = "",
         now: float | None = None,
+        limiter_key: str = "",
     ) -> str:
         """Validate a did:home login proof; return a one-time code."""
         current = time.time() if now is None else now
+        self._consume_rate_limit("authorize", limiter_key or client_id, current)
+        return self._authorize(client_id, redirect_uri, proof, nonce, current)
+
+    def _authorize(
+        self,
+        client_id: str,
+        redirect_uri: str,
+        proof: dict[str, Any],
+        nonce: str,
+        current: float,
+    ) -> str:
         if self.clients.get(client_id) != redirect_uri:
             raise OIDCError("unknown client_id or redirect_uri mismatch")
         handle = str(proof.get("handle", ""))
@@ -169,9 +226,21 @@ class OIDCProvider:
         client_id: str,
         redirect_uri: str,
         now: float | None = None,
+        limiter_key: str = "",
     ) -> dict[str, Any]:
         """Exchange a one-time code for an EdDSA-signed ID token."""
         current = time.time() if now is None else now
+        self._consume_rate_limit("token", limiter_key or client_id, current)
+        return self._token(grant_type, code, client_id, redirect_uri, current)
+
+    def _token(
+        self,
+        grant_type: str,
+        code: str,
+        client_id: str,
+        redirect_uri: str,
+        current: float,
+    ) -> dict[str, Any]:
         if grant_type != "authorization_code":
             raise OIDCError("unsupported grant_type")
         grant = self._codes.pop(code, None)
@@ -203,8 +272,11 @@ class OIDCProvider:
             "id_token": encode_jwt(claims, self.signing_key, self.kid),
         }
 
-    def userinfo(self, authorization: str, now: float | None = None) -> dict[str, Any]:
+    def userinfo(
+        self, authorization: str, now: float | None = None, limiter_key: str = ""
+    ) -> dict[str, Any]:
         current = time.time() if now is None else now
+        self._consume_rate_limit("userinfo", limiter_key or "bearer", current)
         if not authorization.startswith("Bearer "):
             raise OIDCError("missing bearer token")
         info = self._access_tokens.get(authorization.removeprefix("Bearer "))
@@ -217,15 +289,30 @@ class OIDCProvider:
         }
 
 
-def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
+def _make_handler(
+    provider: OIDCProvider,
+    limiter_key: Callable[[BaseHTTPRequestHandler], str] | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    """Build a handler with an optional trusted client-identity callback."""
+
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, status: int, body: dict[str, Any]) -> None:
+        def _send(
+            self,
+            status: int,
+            body: dict[str, Any],
+            headers: dict[str, str] | None = None,
+        ) -> None:
             data = json.dumps(body).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
+
+        def _rate_limit_key(self) -> str:
+            return limiter_key(self) if limiter_key else self.client_address[0]
 
         def do_GET(self) -> None:
             path = urlparse(self.path).path
@@ -235,7 +322,19 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                 self._send(200, provider.jwks())
             elif path == "/userinfo":
                 try:
-                    self._send(200, provider.userinfo(self.headers.get("Authorization", "")))
+                    self._send(
+                        200,
+                        provider.userinfo(
+                            self.headers.get("Authorization", ""),
+                            limiter_key=self._rate_limit_key(),
+                        ),
+                    )
+                except RateLimitError as exc:
+                    self._send(
+                        429,
+                        {"error": str(exc)},
+                        {"Retry-After": str(exc.retry_after)},
+                    )
                 except OIDCError as exc:
                     self._send(401, {"error": str(exc)})
             else:
@@ -243,16 +342,41 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
-            length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length).decode("utf-8")
+            endpoint = {"/authorize": "authorize", "/token": "token"}.get(path)
+            if endpoint is None:
+                self._send(404, {"error": "not found"})
+                return
+            # Charge the per-IP limit before reading or parsing the body, so
+            # malformed or oversized requests still count against it.
+            current = time.time()
             try:
-                if path == "/authorize":
+                provider._consume_rate_limit(endpoint, self._rate_limit_key(), current)
+            except RateLimitError as exc:
+                self._send(
+                    429,
+                    {"error": str(exc)},
+                    {"Retry-After": str(exc.retry_after)},
+                )
+                return
+            except OIDCError as exc:
+                self._send(400, {"error": str(exc)})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 0:
+                    raise OIDCError("invalid Content-Length")
+                if length > MAX_REQUEST_BODY_BYTES:
+                    self._send(413, {"error": "request body too large"})
+                    return
+                raw = self.rfile.read(length).decode("utf-8")
+                if endpoint == "authorize":
                     body = json.loads(raw)
-                    code = provider.authorize(
+                    code = provider._authorize(
                         body["client_id"],
                         body["redirect_uri"],
                         body["proof"],
-                        nonce=body.get("nonce", ""),
+                        body.get("nonce", ""),
+                        current,
                     )
                     self._send(
                         200,
@@ -262,20 +386,25 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                             + (f"&state={body['state']}" if body.get("state") else ""),
                         },
                     )
-                elif path == "/token":
+                else:
                     form = {k: v[0] for k, v in parse_qs(raw).items()}
                     self._send(
                         200,
-                        provider.token(
+                        provider._token(
                             form.get("grant_type", ""),
                             form.get("code", ""),
                             form.get("client_id", ""),
                             form.get("redirect_uri", ""),
+                            current,
                         ),
                     )
-                else:
-                    self._send(404, {"error": "not found"})
-            except (OIDCError, KeyError, json.JSONDecodeError) as exc:
+            except RateLimitError as exc:
+                self._send(
+                    429,
+                    {"error": str(exc)},
+                    {"Retry-After": str(exc.retry_after)},
+                )
+            except (OIDCError, KeyError, ValueError) as exc:
                 self._send(400, {"error": str(exc)})
 
         def log_message(self, *args: Any) -> None:  # quiet by default

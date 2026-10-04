@@ -1,0 +1,10 @@
+name: hostile-agent-demo
+version: "1"
+agent_id: untrusted-agent
+max_steps: 2
+capabilities:
+  - tool: read_note
+    effect: allow
+    constraints:
+      - name: note
+        equals: public

@@ -53,9 +53,14 @@ Rules that keep it human:
    forums, workplaces. Biggest win per effort.
 2. **Browser extension** — "prove my age / name / membership" on any
    site; selective disclosure (prove over-18 **without** revealing
-   birthdate).
+   birthdate). Planned; no age credential or selective-disclosure proof is
+   implemented. A signed self-assertion or hash of a birthdate is not an
+   age proof.
 3. **Passkey / WebAuthn custody** — ride existing hardware + browser
-   support for key storage; nothing new for users to learn.
+   support for key storage; nothing new for users to learn. Planned; browser
+   credential APIs do not expose an authenticator's private key, so Vouch
+   needs a reviewed custody and recovery design before claiming passkey-backed
+   Ed25519 keys.
 4. **QR verification page** — single static HTML file anyone can host;
    scan a card → green tick; works offline.
 5. **Email / signature shim** — sign any message with your name;
@@ -70,11 +75,11 @@ Rules that keep it human:
 |---|---|---|
 | 1 | Rename + rebrand (Vouch CLI, plain-language README) | ✅ this repo |
 | 2 | Mission README: why + trap/counter + 3-step quickstart | ✅ this repo |
-| 3 | Passkey custody + PWA claim flow (kills the CLI barrier) | next |
-| 4 | OIDC bridge | next |
-| 5 | Selective-disclosure age proof (the main govt-ID wedge) | planned |
-| 6 | QR paper identity + static verifier page | planned |
-| 7 | Social recovery ceremony | planned |
+| 3 | Passkey custody + PWA claim flow (kills the CLI barrier) | planned |
+| 4 | OIDC bridge | ✅ reference implementation; relying-party interoperability unvalidated |
+| 5 | Selective-disclosure age proof (the main govt-ID wedge) | planned; trusted issuer and proof system not selected |
+| 6 | QR paper identity + static verifier page | ✅ this repo |
+| 7 | Social recovery ceremony | ✅ this repo |
 
 ## 5. Principles (non-negotiable)
 

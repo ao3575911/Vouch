@@ -1,6 +1,9 @@
 """Offline proofs, printable cards, and the OIDC bridge."""
 
 import json
+from http.client import HTTPConnection
+from http.server import HTTPServer
+from threading import Thread
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -8,7 +11,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from capgate.didhome.manifest import create_manifest
 from capgate.didhome.proof import ProofError, card_html, create_proof, verify_proof
 from capgate.didhome.registry import Registry
-from vouch.oidc import OIDCError, OIDCProvider, decode_jwt
+from vouch.oidc import (
+    MAX_REQUEST_BODY_BYTES,
+    OIDCError,
+    OIDCProvider,
+    _make_handler,
+    decode_jwt,
+)
 
 
 @pytest.fixture
@@ -71,6 +80,17 @@ REDIRECT = "https://app.example/cb"
 def provider(world):
     registry, _ = world
     return OIDCProvider(registry, issuer="https://vouch.example", clients={CLIENT: REDIRECT})
+
+
+@pytest.fixture
+def oidc_http_server(provider):
+    server = HTTPServer(("127.0.0.1", 0), _make_handler(provider))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server.server_address
+    server.shutdown()
+    server.server_close()
+    thread.join()
 
 
 def _login_proof(world, provider, statement=None):
@@ -149,3 +169,151 @@ def test_userinfo_requires_valid_bearer(provider):
         provider.userinfo("")
     with pytest.raises(OIDCError, match="invalid or expired"):
         provider.userinfo("Bearer " + "nope")
+
+
+def test_authorize_rate_limited(world, provider):
+    provider.rate_limits["authorize"] = 2
+    provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip1")
+    provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip1")
+    with pytest.raises(OIDCError, match="rate limit exceeded for authorize"):
+        provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip1")
+
+
+def test_token_rate_limited(world, provider):
+    provider.rate_limits["token"] = 1
+    code1 = provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip2")
+    provider.token("authorization_code", code1, CLIENT, REDIRECT, limiter_key="ip2")
+    code2 = provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip2")
+    with pytest.raises(OIDCError, match="rate limit exceeded for token"):
+        provider.token("authorization_code", code2, CLIENT, REDIRECT, limiter_key="ip2")
+
+
+def test_userinfo_rate_limited(world, provider):
+    provider.rate_limits["userinfo"] = 1
+    code = provider.authorize(CLIENT, REDIRECT, _login_proof(world, provider), limiter_key="ip3")
+    tokens = provider.token("authorization_code", code, CLIENT, REDIRECT, limiter_key="ip3")
+    provider.userinfo("Bearer " + tokens["access_token"], limiter_key="ip3")
+    with pytest.raises(OIDCError, match="rate limit exceeded for userinfo"):
+        provider.userinfo("Bearer " + tokens["access_token"], limiter_key="ip3")
+
+
+def test_rate_limit_evicts_inactive_buckets(provider):
+    provider._consume_rate_limit("authorize", "ip1", 0)
+    provider._consume_rate_limit("authorize", "ip2", 61)
+    assert ("authorize", "ip1") not in provider._rate_events
+
+
+def test_rate_limit_bucket_count_is_bounded(provider, monkeypatch):
+    monkeypatch.setattr("vouch.oidc.MAX_RATE_LIMIT_BUCKETS", 2)
+    for key in ("ip1", "ip2", "ip3"):
+        provider._consume_rate_limit("authorize", key, 1)
+    assert len(provider._rate_events) == 2
+    assert ("authorize", "ip1") not in provider._rate_events
+
+
+def test_authorize_http_rate_limit_counts_invalid_requests(oidc_http_server, provider):
+    provider.rate_limits["authorize"] = 2
+    connection = HTTPConnection(*oidc_http_server)
+    for body in ("{", "{}"):
+        connection.request("POST", "/authorize", body)
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 400
+    connection.request("POST", "/authorize", "{}")
+    response = connection.getresponse()
+    assert json.loads(response.read())["error"] == "rate limit exceeded for authorize"
+    connection.close()
+
+
+def test_authorize_http_rate_limit_is_not_double_consumed(
+    world, oidc_http_server, provider
+):
+    provider.rate_limits["authorize"] = 1
+    proof = _login_proof(world, provider)
+    connection = HTTPConnection(*oidc_http_server)
+    connection.request(
+        "POST",
+        "/authorize",
+        json.dumps({"client_id": CLIENT, "redirect_uri": REDIRECT, "proof": proof}),
+    )
+    response = connection.getresponse()
+    assert response.status == 200
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "method", "path", "body", "first_status"),
+    [
+        ("authorize", "POST", "/authorize", "{}", 400),
+        ("token", "POST", "/token", "", 400),
+        ("userinfo", "GET", "/userinfo", None, 401),
+    ],
+)
+def test_http_rate_limits_return_429_with_retry_after(
+    provider, oidc_http_server, endpoint, method, path, body, first_status
+):
+    provider.rate_limits[endpoint] = 1
+    connection = HTTPConnection(*oidc_http_server)
+    connection.request(method, path, body)
+    first_response = connection.getresponse()
+    first_response.read()
+    assert first_response.status == first_status
+
+    connection.request(method, path, body)
+    response = connection.getresponse()
+    response.read()
+    assert response.status == 429
+    assert int(response.getheader("Retry-After")) >= 1
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("content_length", "expected_status"),
+    [
+        ("-1", 400),
+        (str(MAX_REQUEST_BODY_BYTES + 1), 413),
+    ],
+)
+def test_http_rejects_invalid_or_oversized_content_length(
+    oidc_http_server, content_length, expected_status
+):
+    connection = HTTPConnection(*oidc_http_server, timeout=1)
+    connection.request(
+        "POST", "/authorize", headers={"Content-Length": content_length}
+    )
+    response = connection.getresponse()
+    response.read()
+    assert response.status == expected_status
+    connection.close()
+
+
+def test_http_rate_limit_uses_configured_client_identity(provider):
+    provider.rate_limits["authorize"] = 1
+    server = HTTPServer(
+        ("127.0.0.1", 0),
+        _make_handler(
+            provider,
+            limiter_key=lambda request: request.headers.get("X-Trusted-Client", ""),
+        ),
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = HTTPConnection(*server.server_address)
+    try:
+        statuses = []
+        for identity in ("client-a", "client-b", "client-a"):
+            connection.request(
+                "POST",
+                "/authorize",
+                "{}",
+                headers={"X-Trusted-Client": identity},
+            )
+            response = connection.getresponse()
+            response.read()
+            statuses.append(response.status)
+        assert statuses == [400, 400, 429]
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join()
