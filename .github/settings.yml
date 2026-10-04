@@ -1,6 +1,6 @@
 repository:
   name: vouch
-  description: "Vouch: your name, your key, your proof — local-first identity with signed proofs, auditable logs, and strict capability gating."
+  description: "ID you carry, not ID they control. Offline proof, no account, no kill switch."
   default_branch: main
   has_issues: true
   has_projects: true
