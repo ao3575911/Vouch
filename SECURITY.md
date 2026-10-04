@@ -19,4 +19,4 @@ We will acknowledge reports and triage severity as quickly as possible.
 - Fail closed by default for authorization paths.
 - Require signed, single-use permits and hash-bound call validation.
 - Keep auditable, tamper-evident logs.
-- Require code-owner review before merge to `main`.
+- Changes reach `main` only through a pull request with a passing `test` check.
