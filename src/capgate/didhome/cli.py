@@ -54,6 +54,12 @@ from capgate.didhome.ping import Ping, create_ping, verify_ping
 from capgate.didhome.proof import VERIFY_URL, card_html, create_proof
 from capgate.didhome.recovery import approve_recovery
 from capgate.didhome.registry import Registry, export_bundle
+from capgate.didhome.venue import (
+    VenuePolicy,
+    VenuePolicyError,
+    check_entry,
+    entry_pass_html,
+)
 
 PASSPHRASE_ENV = "VOUCH_ID_PASSPHRASE"
 _ENCRYPTED_PEM = "-----BEGIN ENCRYPTED PRIVATE KEY-----"
@@ -397,6 +403,51 @@ def cmd_present(args: argparse.Namespace) -> None:
         print(text)
 
 
+def cmd_entry_pass(args: argparse.Namespace) -> None:
+    """Mint a short-lived entry pass (presentation + QR page) for one venue."""
+    name = validate_handle(args.handle)
+    key = _keystore(args).load(name)
+    manifest = Registry(args.registry).resolve(name)
+    atts: list[dict] = []
+    for path in sorted(_vouch_dir(args.home, name).glob("*.json")):
+        atts += _load_atts(path)
+    for path in args.vouch:
+        atts += _load_atts(Path(path))
+    show = [s.strip() for item in args.show for s in item.split(",") if s.strip()] or ["over18"]
+    pres = create_presentation(manifest, key, atts, show, audience=args.venue, nonce=args.nonce)
+    base = args.out if args.out else f"{name}.pass"
+    json_path = Path(f"{base}.json")
+    html_path = Path(f"{base}.html")
+    json_path.write_text(
+        json.dumps(pres, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+    html_path.write_text(entry_pass_html(pres, args.venue), encoding="utf-8")
+    print(f"entry pass for {args.venue} ({', '.join(show)}): {json_path} + {html_path}")
+    print("short-lived and bound to this venue and nonce; show the QR at the door")
+
+
+def cmd_door_check(args: argparse.Namespace) -> None:
+    """Door staff: check an entry pass against the venue's policy file."""
+    policy = VenuePolicy.load(args.policy)
+    pres = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    try:
+        result = check_entry(Registry(args.registry), policy, pres, args.nonce)
+    except (AttestationError, VenuePolicyError) as exc:
+        print(f"ENTRY DENIED: {exc}")
+        raise SystemExit(1) from None
+    print(f"pass from {result.holder} for {result.venue}")
+    for c in result.claims:
+        status = "OK" if c.ok else "DENIED"
+        print(f"{c.wanted}: weight {c.weight} of {result.min_weight} needed  [{status}]")
+        for v in c.vouchers:
+            print(f"  {v['voucher']} ({v['tier']}, weight {v['weight']}, {v['method']})")
+    for label, reason in result.rejected:
+        print(f"  ignored {label}: {reason}")
+    print("ENTRY OK" if result.ok else "ENTRY DENIED")
+    if not result.ok:
+        raise SystemExit(1)
+
+
 def cmd_revoke_attestation(args: argparse.Namespace) -> None:
     ks = _keystore(args)
     voucher = _signer(ks, args.as_handle)
@@ -557,6 +608,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("attestation_id")
     p.add_argument("--as", dest="as_handle")
     p.set_defaults(func=cmd_revoke_attestation)
+
+    p = sub.add_parser("entry-pass", help="mint a short-lived QR entry pass for one venue")
+    p.add_argument("handle")
+    p.add_argument("--venue", required=True, help="the venue id, e.g. bottleshop.perth.example")
+    p.add_argument("--nonce", required=True, help="the code shown at the door")
+    p.add_argument("--show", action="append", default=[], help="claims to show (default over18)")
+    p.add_argument("--vouch", action="append", default=[], help="extra vouch file")
+    p.add_argument("--out", help="output base name (writes .json and .html)")
+    p.set_defaults(func=cmd_entry_pass)
+
+    p = sub.add_parser("door-check", help="door staff: check an entry pass against a policy")
+    p.add_argument("file", help="the entry pass JSON (scanned from the QR)")
+    p.add_argument("--policy", required=True, help="the venue's policy JSON file")
+    p.add_argument("--nonce", required=True, help="the nonce the door gave the patron")
+    p.set_defaults(func=cmd_door_check)
 
     p = sub.add_parser("verify-presentation", help="check a presentation against the registry")
     p.add_argument("file")
