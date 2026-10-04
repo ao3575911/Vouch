@@ -131,7 +131,7 @@ def card_html(proof: dict[str, Any]) -> str:
     qr_block = (
         f'<img class="qr" alt="proof QR" src="{qr}">'
         if qr
-        else '<p class="noqr">(install <code>vouch[qr]</code> for a QR code)</p>'
+        else '<p class="noqr">(install <code>vouch-id[qr]</code> for a QR code)</p>'
     )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">

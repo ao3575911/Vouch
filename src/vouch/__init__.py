@@ -1,4 +1,4 @@
-"""Vouch — your name, your key, your proof. Plan B to government digital ID.
+"""Vouch — your name, your key, your proof.
 
 Vouch is the public face of the ``did:home`` namespace. Plain words only:
 
@@ -7,8 +7,8 @@ Vouch is the public face of the ``did:home`` namespace. Plain words only:
     vouch  = a permission slip you sign for a helper
     prove  = show something is really from you
 
-Government digital ID: they check you against their database and log it.
-Vouch: you prove it yourself; nobody is called, nothing is logged.
+A portable handle, login with it, and signed statements anyone can check
+offline. Scope: docs/adr-0001-scope.md.
 
 The cryptographic engine lives in ``capgate.didhome`` (internal). This
 package re-exports it under friendly names and ships the ``vouch`` CLI.

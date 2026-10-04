@@ -1,30 +1,26 @@
 # Vouch
 
-**Your name. Your key. Your proof.** A free Plan B to government digital ID.
+**Your name. Your key. Your proof.** A portable handle you own, login with
+it, and statements anyone can check offline.
 
-Government digital ID: *they* check you against *their* database — and log
-every check. Vouch: *you* prove it yourself. Nobody is called. Nothing is
-logged. Nobody can switch you off.
+- **Handle**: `@adam` is `did:home:adam`, a self-signed manifest in a static,
+  forkable registry with a signed, tamper-evident log. No account, no email,
+  no phone number. Lost your key? Your guardians can recover it.
+- **Login**: a small self-hostable OpenID Connect bridge that turns a signed
+  login proof into an ID token. Reference implementation, not yet tested
+  with real relying parties.
+- **Signed statements**: proof cards checked offline on paper, in a browser
+  or from the CLI. Nobody is called and nothing is logged.
 
-```
- govt digital ID                     Vouch
- ───────────────────────────        ───────────────────────────
- you ──► their server ──► log       you ──► signed proof ──► ✓
-        (tracked, revocable)             (offline, yours forever)
-```
+What it isn't: a proof is a statement signed by your key. Nobody attests
+that it's true, so Vouch can't prove your age or legal name and doesn't
+replace government ID. Scope and reasons:
+[`docs/adr-0001-scope.md`](./docs/adr-0001-scope.md). Background on the
+digital-ID problem: [`docs/plan-b.md`](./docs/plan-b.md).
 
-## Why a Plan B
-
-| How digital ID traps you | How Vouch counters it |
-|---|---|
-| Mandatory for services (banking, benefits, age checks, login) | Verifier shim: services accept a Vouch proof wherever they accept ID assertions |
-| Central register tracks every verification | Static, forkable registry; proofs verify **offline**, no phone-home |
-| Phone-app monopoly | Works on paper (QR), browser, CLI — any device, no account |
-| Network effect / default | Plugs into systems people already use ([roadmap](./docs/plan-b.md)) |
-| Central revocation = social cutoff | You hold the keys; nobody can centrally disable your name |
-| "Convenient" onboarding hooks you | 60-second claim: no signup, no email, no phone number |
-
-Full strategy: [`docs/plan-b.md`](./docs/plan-b.md).
+The Python distribution is `vouch-id` (`vouch` on PyPI is someone else's
+project). It isn't published yet; install from a clone. The import name and
+the CLI are `vouch`.
 
 ## Get your name in 3 steps
 
@@ -55,9 +51,10 @@ sign a proof that names any handle. In Python, use
 
 ## Login with Vouch (OIDC bridge)
 
-Self-hostable OpenID Connect provider backed by did:home proofs — instant
-"Login with Vouch" on anything that speaks OIDC (WordPress, Nextcloud,
-forums):
+Self-hostable OpenID Connect provider backed by did:home proofs. Today it
+takes a POSTed login proof; the browser redirect flow that WordPress or
+Nextcloud expect is not built yet (issue #13). Limits and deployment notes:
+[`docs/oidc-deployment.md`](./docs/oidc-deployment.md).
 
 ```bash
 python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
@@ -105,74 +102,13 @@ Social preview asset: [`.github/assets/social-preview.svg`](./.github/assets/soc
 
 ## What's underneath
 
-Two layers, one set of audited primitives (Ed25519, canonical JSON,
-hash-chained logs):
-
-1. **did:home** — the identity namespace (manifests, registry, delegation,
-   pings). Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md).
-2. **capgate** — the fail-closed capability-token tool gate (internal
-   engine, documented below).
-
----
-
-# capgate (internal engine)
-
-**Research preview — not production-grade.** Fail-closed capability-token MCP tool gate.
-The isolated Unix-socket gateway and hostile-agent Docker demo are exercised
-in CI; they do not by themselves establish production readiness.
-
-## Invariant
-
-No tool invocation reaches an executor without a valid, signed, single-use
-permit derived from a deterministic policy decision against a named contract.
-
-The agent proposes; the harness authorizes; the executor acts. Unauthorized
-actions are structurally unable to reach a tool — not "asked nicely not to."
-
-## Architecture
-
-```
-agent (proposes) ──► harness (deterministic policy + Ed25519 permit signer + audit)
-                          │
-                     signed single-use permit
-                          │
-                          ▼
-                     executor (verifies signature, nonce, call hash) ──► tool
-```
-
-- **Contract** (`src/capgate/contract.py`, `contracts/example.yaml`): names one
-  agent identity, its capabilities (tool + argument constraints), approvers,
-  a hard step budget, and allow/deny/escalate effects. Anything not named is
-  denied. Delegation is non-transitive unless a capability explicitly
-  escalates and names targets.
-- **Policy** (`src/capgate/policy.py`): deterministic evaluation. No model in
-  the decision path. Deny by default.
-- **Permit** (`src/capgate/permit.py`): short-lived, single-use, Ed25519-signed;
-  binds agent identity + canonical hash of the exact tool call + contract
-  version. The signing key lives in the harness, never the agent process.
-- **Audit** (`src/capgate/audit.py`): hash-chained, append-only JSONL. Any
-  tamper, reorder, or deletion breaks the chain. Verifiable offline.
-- **Harness** (`src/capgate/harness.py`): proposal → decision → permit → audit.
-- **Executor** (`src/capgate/executor.py`): validates signature, expiry,
-  single-use nonce, agent identity, and call hash before any tool runs.
-  Holds tool credentials; the agent never sees them.
-
-## did:home — free, local-first DID namespace for agents
-
-Built on the same primitives (Ed25519, canonical JSON, hash-chained logs):
-`@adam` → `did:home:adam`, a self-signed manifest in a static, forkable
-registry. Utility = capability-scoped delegation (`cal@adam` acts for
-`@adam` with exactly the granted permissions) + signed replay-proof pings.
-No VM, no mail, no storage, no billing.
-
-```bash
-python -m capgate.didhome --registry ./registry claim @adam
-python -m capgate.didhome --registry ./registry delegate @adam cal ping:send
-python -m capgate.didhome --registry ./registry verify-registry
-```
-
-Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md). Code:
-`src/capgate/didhome/` (manifest, registry, delegation, ping, cli).
+1. **did:home**: the identity namespace (manifests, registry, delegation,
+   pings, recovery, proofs). Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md).
+   The code lives in `src/capgate/didhome/` for now.
+2. **capgate**: a fail-closed capability-token tool gate for AI agents. It
+   shares the primitives (Ed25519, canonical JSON, hash-chained logs) but is
+   a separate product and will move to its own repo (issue #15). Docs:
+   [`docs/capgate.md`](./docs/capgate.md).
 
 ## Try it
 
@@ -180,22 +116,5 @@ Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md). Code:
 pip install -e ".[dev]"
 ruff check src tests
 pytest -v
+node tests/js/verify_vectors.mjs   # browser verifier, Node 22+
 ```
-
-The test suite is adversarial by design: unauthorized tools, permit replay,
-expiry, argument tampering after authorization, forged permits, stolen
-permits, delegation without escalation, step-budget exhaustion, and audit
-chain tampering are all proven denied/detected.
-
-## Status
-
-- [x] Phase 0 — contract schema, permit format, hash-chained audit
-- [x] Phase 1 — harness/executor split (in-process reference implementation)
-- [ ] Phase 1 — process/network isolation (agent egress limited to the harness proxy)
-- [x] Phase 2 — adversarial test suite
-- [x] Phase 1 — Unix-socket process boundary; agent network egress disabled in the demo
-- [x] Phase 2 — docker compose demo with hostile agent + restrictive container policy
-- [ ] Phase 3 — production claim (requires independent security review and operational readiness)
-
-Kill list: no dashboards, no extra agents, no "AI policy" layer. Nothing
-ships unless it moves the enforcement boundary.
