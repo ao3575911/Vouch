@@ -145,7 +145,7 @@ def test_card_html_embeds_proof(world):
 
 
 def test_proof_issued_at_is_int_for_browser_canonical_json(world):
-    """web/verify.html re-canonicalises in JS; ints serialise identically."""
+    """docs/verify.html re-canonicalises in JS; ints serialise identically."""
     registry, key = world
     proof = create_proof(registry.resolve("adam"), key, "x")
     assert isinstance(proof["issued_at"], int)

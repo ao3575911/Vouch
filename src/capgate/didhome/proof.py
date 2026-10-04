@@ -2,7 +2,7 @@
 
 A proof is a statement ("I am @adam", "over 18 member") signed by a
 handle's root key. Anyone can verify it against the public key alone —
-offline, no phone-home, no log. ``web/verify.html`` checks the same JSON
+offline, no phone-home, no log. The browser verifier (VERIFY_URL) checks the same JSON
 in a browser; ``card_html`` renders a printable card (QR if the optional
 ``segno`` package is installed).
 """
@@ -27,6 +27,8 @@ from capgate.didhome.manifest import (
     public_key_hex,
 )
 from capgate.didhome.registry import Registry, RegistryError
+
+VERIFY_URL = "https://ao3575911.github.io/vouch-id/verify.html"
 
 
 class ProofError(ValueError):
@@ -123,7 +125,7 @@ def _qr_data_uri(text: str) -> str | None:
 def card_html(proof: dict[str, Any]) -> str:
     """A single printable HTML card carrying the proof.
 
-    Scan the QR (or paste the JSON) into ``web/verify.html`` — the check
+    Paste the JSON (or the text behind the QR) into VERIFY_URL — the check
     runs entirely in the browser, offline.
     """
     proof_json = json.dumps(proof, sort_keys=True, separators=(",", ":"))
@@ -149,7 +151,7 @@ h1{{margin:.2rem 0;font-size:1.6rem}} .stmt{{font-size:1.1rem;margin:.6rem 0}}
 <p class="stmt">{html.escape(proof["statement"])}</p>
 {qr_block}
 <textarea readonly>{html.escape(proof_json)}</textarea>
-<p class="hint">Verify offline with web/verify.html — nobody is called,
+<p class="hint">Verify at {VERIFY_URL} (it also works saved to disk) — nobody is called,
 nothing is logged.</p>
 </div></body></html>
 """

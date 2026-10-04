@@ -4,6 +4,8 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+- The browser verifier is hosted at https://ao3575911.github.io/vouch-id/verify.html and ships in the wheel. It now checks the pasted manifest's signature, not just its key. Cards and the CLI point at it.
+
 ## v0.3.1 (2026-10-04)
 
 - Releases attach the wheel and sdist, so you can install from GitHub without PyPI. The PyPI upload in `publish.yml` is off for now.
