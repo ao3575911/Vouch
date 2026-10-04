@@ -14,7 +14,9 @@
     vouch-id vouch @adam --over 18 --method saw-passport   vouch for someone
     vouch-id keep @adam adam.vouch.json                   store vouches you were given
     vouch-id prove @adam --show over18 --nonce 4821       show a vouched claim
-    vouch-id check proof.json --nonce 4821 --min 2        check a presentation
+    vouch-id check proof.json --nonce 4821 --min 2      check a presentation
+    vouch-id entry @adam --venue bar.x --nonce 77       mint a QR entry pass for a venue
+    vouch-id door pass.json --policy venue.json --nonce 77   door staff check a pass
     vouch-id unvouch <id>                                 withdraw a vouch you made
 
 Same engine, friendlier words. Technical users can keep using
@@ -42,6 +44,8 @@ ALIASES = {
     "guardians": "set-guardians",
     "vouch": "attest",
     "prove": "present",
+    "entry": "entry-pass",
+    "door": "door-check",
     "unvouch": "revoke-attestation",
 }
 

@@ -60,6 +60,7 @@ the same engine with its technical command names.
 - [Concepts](concepts.md): the `did:home` method, manifests, registry, delegation, pings, moving
 - [CLI reference](cli.md): every `vouch-id` command, proof cards and the browser verifier
 - [Proving age and name](attestations.md): vouches, presentations and verifier policy
+- [Venues](venues.md): door policy files, tier weights and QR entry passes
 - [Login with Vouch](login.md): the OIDC bridge, its flow and deployment limits
 - [Recovery](recovery.md): guardians and child identities
 - [Security model](security.md): what a proof does and doesn't show, and what to trust

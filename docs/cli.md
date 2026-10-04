@@ -31,6 +31,8 @@ Every plain-word command maps to an engine command, and both names work.
 | `prove @adam --show over18 --nonce N` | `present` | sign chosen vouches for one verifier (`--audience`, `--out`) |
 | `check proof.json --nonce N` | `verify-presentation` | check a presentation (`--audience`, `--trust @a,@b`, `--min N`) |
 | `unvouch <id>` | `revoke-attestation` | withdraw a vouch you made (`--as`) |
+| `entry @adam --venue bar.x --nonce N` | `entry-pass` | mint a short-lived QR entry pass for one venue (`--show`, `--out`) |
+| `door pass.json --policy venue.json --nonce N` | `door-check` | door staff check a pass against the venue's policy |
 | `takeout @adam --out bundle.json` | `move` | export manifest, private key and history |
 | `audit` | `verify-registry` | check the whole registry offline |
 | `card @adam` | `card` | make a printable proof card |
@@ -40,7 +42,8 @@ Every plain-word command maps to an engine command, and both names work.
 | `recover @adam --approval FILE ...` | `recover` | rotate the key with enough approvals |
 
 `check` picks the right engine command from the file. Vouches are covered in
-[Proving age and name](attestations.md), recovery in [Recovery](recovery.md).
+[Proving age and name](attestations.md), venue entry in [Venues](venues.md),
+recovery in [Recovery](recovery.md).
 
 ## Example
 

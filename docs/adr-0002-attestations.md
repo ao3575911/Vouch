@@ -1,6 +1,6 @@
 ---
 title: "ADR 0002: attestations"
-nav_order: 9
+nav_order: 10
 ---
 
 # ADR 0002: Attestations (vouches)

@@ -1,0 +1,19 @@
+{
+  "type": "vouch-venue-policy",
+  "v": 1,
+  "venue": "bottleshop.perth.example",
+  "require": ["over18"],
+  "tiers": {
+    "police": 3,
+    "licensed": 2,
+    "peer": 1
+  },
+  "vouchers": {
+    "wa-police-perth": "police",
+    "pharmacy-subiaco": "licensed",
+    "notary-fremantle": "licensed",
+    "adam": "peer"
+  },
+  "min_weight": 2,
+  "max_age": 120
+}
