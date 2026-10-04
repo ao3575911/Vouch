@@ -22,8 +22,15 @@ node tests/js/verify_vectors.mjs   # browser verifier against shared vectors, No
 - [SemVer](https://semver.org) tags, `vX.Y.Z`. History in [`CHANGELOG.md`](https://github.com/ao3575911/vouch-id/blob/main/CHANGELOG.md).
 - To release, bump `version` in `pyproject.toml` in a PR. Merging it to `main`
   runs `release.yml`, which creates the tag and a GitHub Release.
-- To publish to PyPI, run `gh workflow run publish.yml -R ao3575911/vouch-id -f tag=vX.Y.Z`.
-  Releases made by `release.yml` don't trigger `publish.yml` on their own.
+- `release.yml` then builds the sdist and wheel from the tag and attaches them
+  to the release. Re-running it (`gh workflow run release.yml`) attaches them
+  if they're missing.
+- After a release, update the version in the install lines in `README.md`,
+  `docs/index.md` and `docs/cli.md`.
+- PyPI upload is off for now: the `pypi` job in `publish.yml` has `if: false`.
+  To switch it on, add a trusted publisher on PyPI (project `vouch-id`, repo
+  `ao3575911/vouch-id`, workflow `publish.yml`, environment `pypi`), remove the
+  `if: false`, then run `gh workflow run publish.yml -R ao3575911/vouch-id -f tag=vX.Y.Z`.
 - Every tag points at an exact commit, so `vX.Y.Z` is the trace reference for
   issues and PRs.
 

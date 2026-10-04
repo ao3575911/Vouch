@@ -1,7 +1,9 @@
 name: release
 
-# Tags and releases the version in pyproject.toml when it lands on main.
+# Tags and releases the version in pyproject.toml when it lands on main, then
+# builds the sdist and wheel from the tag and attaches them to the release.
 # Bump `version` in pyproject.toml in a PR; merging it creates vX.Y.Z + a GitHub Release.
+# Re-run by hand to attach missing assets: gh workflow run release.yml
 on:
   push:
     branches: [main]
@@ -19,6 +21,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Read version
         id: v
         run: |
@@ -31,10 +37,39 @@ jobs:
           TAG: ${{ steps.v.outputs.tag }}
         run: |
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "${TAG} already exists, nothing to do"; exit 0
+            echo "${TAG} already exists"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "${TAG}" -m "${TAG}"
+            git push origin "${TAG}"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${TAG}" -m "${TAG}"
-          git push origin "${TAG}"
-          gh release create "${TAG}" --title "${TAG}" --generate-notes --verify-tag
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release create "${TAG}" --title "${TAG}" --generate-notes --verify-tag
+          fi
+
+      - name: Check for assets
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          COUNT=$(gh release view "${TAG}" --json assets --jq '.assets | length')
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Build from the tag
+        if: steps.assets.outputs.count == '0'
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          git checkout "refs/tags/${TAG}"
+          python -m pip install build twine
+          python -m build
+          twine check --strict dist/*
+
+      - name: Attach to the release
+        if: steps.assets.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: gh release upload "${TAG}" dist/*

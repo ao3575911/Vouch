@@ -25,8 +25,17 @@ government ID.
 
 ## Install
 
+Vouch isn't on PyPI yet. Install the wheel from the latest
+[GitHub release](https://github.com/ao3575911/vouch-id/releases):
+
 ```bash
-pip install vouch-id
+pip install https://github.com/ao3575911/vouch-id/releases/download/v0.3.1/vouch_id-0.3.1-py3-none-any.whl
+```
+
+Or build from the tag (needs git):
+
+```bash
+pip install "git+https://github.com/ao3575911/vouch-id@v0.3.1"
 ```
 
 The Python distribution and the CLI are `vouch-id` (`vouch` on PyPI is someone

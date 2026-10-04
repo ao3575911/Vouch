@@ -4,6 +4,9 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+## v0.3.1 (2026-10-04)
+
+- Releases attach the wheel and sdist, so you can install from GitHub without PyPI. The PyPI upload in `publish.yml` is off for now.
 - README cut to one screen with flow diagrams; the detail moved to a docs site in `docs/` (GitHub Pages).
 - Packaging for PyPI: SPDX licence, project URLs and classifiers; README links work on PyPI; trusted-publishing workflow (`publish.yml`).
 

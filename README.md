@@ -34,10 +34,16 @@ sequenceDiagram
 ## Quick start
 
 ```bash
-pip install vouch-id                   # 1. install
-vouch-id get @adam                     # 2. claim your name and make your key
-vouch-id card @adam --out card.html    # 3. sign a proof card anyone can check
+# 1. install
+pip install https://github.com/ao3575911/vouch-id/releases/download/v0.3.1/vouch_id-0.3.1-py3-none-any.whl
+# 2. claim your name and make your key
+vouch-id get @adam
+# 3. sign a proof card anyone can check
+vouch-id card @adam --out card.html
 ```
+
+It's not on PyPI yet, so this installs the wheel from the
+[v0.3.1 release](https://github.com/ao3575911/vouch-id/releases/tag/v0.3.1).
 
 `vouch-id audit` re-checks the whole registry offline and prints
 `registry OK: 1 handles, 1 events, chain verified`.
