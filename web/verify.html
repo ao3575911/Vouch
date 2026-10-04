@@ -8,9 +8,11 @@
 body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
 h1{font-size:1.4rem}
 textarea{width:100%;height:10rem;font-family:monospace;font-size:.8rem}
+#manifest{height:6rem}
 button{font-size:1rem;padding:.5rem 1.2rem;margin-top:.5rem;cursor:pointer}
 #result{margin-top:1rem;padding:1rem;border-radius:8px;font-size:1.2rem;display:none}
 .ok{background:#e6f7e6;border:2px solid #2a2;color:#161}
+.warn{background:#fff4e0;border:2px solid #d98a00;color:#7a4b00}
 .bad{background:#fde8e8;border:2px solid #c22;color:#811}
 .hint{color:#555;font-size:.85rem}
 </style>
@@ -26,27 +28,49 @@ true or that an issuer verified it.</p>
 <label for="proof">Proof JSON</label>
 <textarea id="proof" aria-describedby="instructions limits"
 placeholder='{"did":"did:home:adam", ... }'></textarea>
+<label for="manifest">Manifest JSON or public key from the registry (optional)</label>
+<textarea id="manifest" aria-describedby="pinhint"
+placeholder='contents of names/adam.json, or the 64-hex root public key'></textarea>
+<p id="pinhint" class="hint">Anyone can sign a proof that names any handle
+with their own key. Paste the handle's manifest from a registry copy you
+trust (for example <code>vouch whoami @adam</code>) to check the key. Without
+it the result is unpinned.</p>
 <br><button id="go" type="button">Verify</button>
 <div id="result" role="status" aria-live="polite" aria-atomic="true"></div>
-<script>
+<script id="vouch-core">
+// Canonical JSON matching Python json.dumps(sort_keys=True,
+// separators=(",", ":")) with its default ensure_ascii=True.
+function escapeNonAscii(text){
+  return text.replace(/[\u007f-\uffff]/g,
+    c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+}
 function canonical(obj){
   if (Array.isArray(obj)) return "[" + obj.map(canonical).join(",") + "]";
   if (obj !== null && typeof obj === "object"){
     return "{" + Object.keys(obj).sort().map(
-      k => JSON.stringify(k) + ":" + canonical(obj[k])).join(",") + "}";
+      k => escapeNonAscii(JSON.stringify(k)) + ":" + canonical(obj[k])).join(",") + "}";
   }
+  if (typeof obj === "number" && !Number.isSafeInteger(obj)){
+    throw new Error("non-integer number in proof");
+  }
+  if (typeof obj === "string") return escapeNonAscii(JSON.stringify(obj));
   return JSON.stringify(obj);
 }
 function fromHex(hex){
+  if (typeof hex !== "string" || !/^([0-9a-f]{2})*$/i.test(hex)){
+    throw new Error("malformed hex");
+  }
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
   return out;
 }
-async function verify(){
-  const el = document.getElementById("result");
-  el.style.display = "block";
+// pinned: manifest object, 64-hex key string, or null.
+// Returns {level: "ok" | "warn" | "bad", text}.
+async function checkProof(proof, pinned){
   try {
-    const proof = JSON.parse(document.getElementById("proof").value);
+    if (typeof proof.handle !== "string" || proof.did !== "did:home:" + proof.handle){
+      throw new Error("did does not match handle");
+    }
     const sig = fromHex(proof.signature);
     const unsigned = Object.fromEntries(
       Object.entries(proof).filter(([k]) => k !== "signature"));
@@ -55,12 +79,47 @@ async function verify(){
       "raw", fromHex(proof.public_key), {name: "Ed25519"}, false, ["verify"]);
     const ok = await crypto.subtle.verify({name: "Ed25519"}, key, sig, payload);
     if (!ok) throw new Error("signature invalid");
-    el.className = "ok";
-    el.textContent = "\u2713 genuine \u2014 @" + proof.handle + ": " + proof.statement;
+    const label = "@" + proof.handle + ": " + proof.statement;
+    if (pinned === null || pinned === undefined){
+      return {level: "warn", text: "\u26a0 unpinned \u2014 key " +
+        proof.public_key.slice(0, 16) + "\u2026 signed \u201c" + label +
+        "\u201d. Not checked against the registry."};
+    }
+    let expected = pinned;
+    if (typeof pinned === "object"){
+      if (pinned.did !== proof.did || pinned.handle !== proof.handle){
+        throw new Error("manifest is for a different handle");
+      }
+      expected = pinned.root_public_key;
+    }
+    if (typeof expected !== "string" || expected.toLowerCase() !== proof.public_key.toLowerCase()){
+      throw new Error("signed by a key that is not the registry key");
+    }
+    return {level: "ok", text: "\u2713 genuine \u2014 " + label};
   } catch (e) {
-    el.className = "bad";
-    el.textContent = "\u2717 not verified \u2014 " + e.message;
+    return {level: "bad", text: "\u2717 not verified \u2014 " + e.message};
   }
+}
+</script>
+<script>
+function readPinned(){
+  const raw = document.getElementById("manifest").value.trim();
+  if (!raw) return null;
+  if (/^[0-9a-f]{64}$/i.test(raw)) return raw;
+  return JSON.parse(raw);
+}
+async function verify(){
+  const el = document.getElementById("result");
+  el.style.display = "block";
+  let result;
+  try {
+    result = await checkProof(
+      JSON.parse(document.getElementById("proof").value), readPinned());
+  } catch (e) {
+    result = {level: "bad", text: "\u2717 not verified \u2014 " + e.message};
+  }
+  el.className = result.level;
+  el.textContent = result.text;
 }
 document.getElementById("go").addEventListener("click", verify);
 </script>

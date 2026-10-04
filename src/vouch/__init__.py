@@ -41,6 +41,7 @@ from capgate.didhome import (
     verify_manifest,
     verify_ping,
     verify_proof,
+    verify_proof_for_handle,
 )
 
 __all__ = [
@@ -70,4 +71,5 @@ __all__ = [
     "verify_manifest",
     "verify_ping",
     "verify_proof",
+    "verify_proof_for_handle",
 ]
