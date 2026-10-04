@@ -9,10 +9,11 @@
   <g fill="#d5e4ff" font-family="Inter,Segoe UI,Arial,sans-serif">
     <text x="80" y="210" font-size="84" font-weight="700">Vouch</text>
     <text x="80" y="292" font-size="40" font-weight="500">Your name. Your key. Your proof.</text>
-    <text x="80" y="360" font-size="30" fill="#9fc0ff">Offline-verifiable identity with signed proofs and hash-chained audit logs.</text>
-    <text x="80" y="430" font-size="26" fill="#9fc0ff">Tag-driven releases • SHA traceability • Strict review gates</text>
+    <text x="80" y="356" font-size="30" fill="#9fc0ff">Offline-verifiable identity,</text>
+    <text x="80" y="398" font-size="30" fill="#9fc0ff">signed proofs, hash-chained logs.</text>
+    <text x="80" y="470" font-size="24" fill="#6f8fc9">Works offline • No account • You hold the keys</text>
   </g>
-  <g transform="translate(810 150)">
+  <g transform="translate(790 150)">
     <rect x="0" y="0" width="390" height="340" rx="22" fill="#0e1e3d" stroke="#3c5fa3" stroke-width="2"/>
     <text x="34" y="70" fill="#d5e4ff" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="26">$ vouch audit</text>
     <text x="34" y="132" fill="#8ff7bf" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="24">chain: verified</text>

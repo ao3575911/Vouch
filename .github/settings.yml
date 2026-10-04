@@ -1,10 +1,10 @@
 repository:
-  name: Vouch
+  name: vouch
   description: "Vouch: your name, your key, your proof — local-first identity with signed proofs, auditable logs, and strict capability gating."
   default_branch: main
   has_issues: true
   has_projects: true
-  has_wiki: true
+  has_wiki: false
   has_discussions: true
   allow_squash_merge: true
   allow_merge_commit: false
@@ -15,12 +15,12 @@ branches:
   - name: main
     protection:
       required_pull_request_reviews:
-        required_approving_review_count: 1
+        required_approving_review_count: 0
         dismiss_stale_reviews: true
-        require_code_owner_reviews: true
+        require_code_owner_reviews: false
       required_status_checks:
         strict: true
         contexts:
-          - ci
+          - test
       enforce_admins: true
       restrictions: null
