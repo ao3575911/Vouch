@@ -21,7 +21,7 @@ import base64
 import json
 import secrets
 import time
-from collections import defaultdict
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -41,6 +41,7 @@ CODE_TTL_SECONDS = 120
 TOKEN_TTL_SECONDS = 3600
 RATE_LIMIT_WINDOW_SECONDS = 60
 DEFAULT_RATE_LIMITS = {"authorize": 20, "token": 30, "userinfo": 60}
+MAX_RATE_LIMIT_BUCKETS = 10_000
 
 
 class OIDCError(ValueError):
@@ -97,7 +98,9 @@ class OIDCProvider:
     _seen_proof_nonces: set[str] = field(default_factory=set)
     rate_limit_window_seconds: int = RATE_LIMIT_WINDOW_SECONDS
     rate_limits: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
-    _rate_events: dict[tuple[str, str], list[float]] = field(default_factory=lambda: defaultdict(list))
+    _rate_events: OrderedDict[tuple[str, str], list[float]] = field(
+        default_factory=OrderedDict
+    )
 
     @property
     def kid(self) -> str:
@@ -134,14 +137,26 @@ class OIDCProvider:
 
     def _consume_rate_limit(self, endpoint: str, limiter_key: str, current: float) -> None:
         bucket_key = (endpoint, limiter_key or "global")
-        events = self._rate_events[bucket_key]
         window_start = current - self.rate_limit_window_seconds
+        events = self._rate_events.pop(bucket_key, [])
         while events and events[0] <= window_start:
             events.pop(0)
+        while self._rate_events:
+            oldest_key = next(iter(self._rate_events))
+            oldest_events = self._rate_events[oldest_key]
+            if oldest_events and oldest_events[-1] > window_start:
+                break
+            self._rate_events.popitem(last=False)
         limit = self.rate_limits.get(endpoint, 0)
         if limit and len(events) >= limit:
+            self._rate_events[bucket_key] = events
             raise OIDCError(f"rate limit exceeded for {endpoint}")
+        if not limit:
+            return
         events.append(current)
+        self._rate_events[bucket_key] = events
+        while len(self._rate_events) > MAX_RATE_LIMIT_BUCKETS:
+            self._rate_events.popitem(last=False)
 
     def authorize(
         self,
@@ -155,6 +170,16 @@ class OIDCProvider:
         """Validate a did:home login proof; return a one-time code."""
         current = time.time() if now is None else now
         self._consume_rate_limit("authorize", limiter_key or client_id, current)
+        return self._authorize(client_id, redirect_uri, proof, nonce, current)
+
+    def _authorize(
+        self,
+        client_id: str,
+        redirect_uri: str,
+        proof: dict[str, Any],
+        nonce: str,
+        current: float,
+    ) -> str:
         if self.clients.get(client_id) != redirect_uri:
             raise OIDCError("unknown client_id or redirect_uri mismatch")
         handle = str(proof.get("handle", ""))
@@ -273,17 +298,26 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
+            if path == "/authorize":
+                current = time.time()
+                try:
+                    provider._consume_rate_limit(
+                        "authorize", self.client_address[0], current
+                    )
+                except OIDCError as exc:
+                    self._send(400, {"error": str(exc)})
+                    return
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length).decode("utf-8")
             try:
                 if path == "/authorize":
                     body = json.loads(raw)
-                    code = provider.authorize(
+                    code = provider._authorize(
                         body["client_id"],
                         body["redirect_uri"],
                         body["proof"],
-                        nonce=body.get("nonce", ""),
-                        limiter_key=self.client_address[0],
+                        body.get("nonce", ""),
+                        current,
                     )
                     self._send(
                         200,
