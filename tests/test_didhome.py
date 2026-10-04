@@ -57,6 +57,16 @@ def test_manifest_self_verifies(key):
     verify_manifest(create_manifest("@adam", key))
 
 
+def test_int_timestamp_survives_json_round_trip(key):
+    m = create_manifest("@adam", key, now=1759550400)
+    assert isinstance(m.created_at, float)
+    round_tripped = Manifest.from_dict(json.loads(json.dumps(m.to_dict())))
+    verify_manifest(round_tripped)
+    m2 = update_manifest(round_tripped, key, now=1759550500)
+    assert isinstance(m2.updated_at, float)
+    verify_manifest(Manifest.from_dict(json.loads(json.dumps(m2.to_dict()))))
+
+
 def test_tampered_manifest_rejected(key):
     m = create_manifest("@adam", key)
     data = m.to_dict()

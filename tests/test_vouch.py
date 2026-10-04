@@ -42,3 +42,29 @@ def test_vouch_cli_engine_names_still_work(tmp_path):
     base = ["--home", str(tmp_path / "keys"), "--registry", str(tmp_path / "reg")]
     assert main([*base, "claim", "@adam"]) == 0
     assert main([*base, "verify-registry"]) == 0
+
+
+def test_vouch_cli_top_level_help_uses_plain_words(capsys):
+    from vouch.cli import main
+
+    assert main(["--help"]) == 0
+    out = capsys.readouterr().out
+    for word in (
+        "get @you",
+        "helper @you <helper> <scope>",
+        "vouch @them",
+        "prove @you",
+        "takeout @you",
+        "audit",
+    ):
+        assert word in out
+    assert "attest" not in out  # engine names stay out of the plain help
+    assert main(["--home", "x", "-h"]) == 0
+    assert "get @you" in capsys.readouterr().out
+
+
+def test_vouch_cli_no_args_prints_plain_help(capsys):
+    from vouch.cli import main
+
+    assert main([]) == 2
+    assert "get @you" in capsys.readouterr().err

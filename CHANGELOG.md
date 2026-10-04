@@ -2,6 +2,12 @@
 
 Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and a GitHub Release.
 
+## Unreleased
+
+- `vouch-id --help` (and `vouch-id` with no arguments) now shows the plain-word commands (`get`, `show`, `vouch`, `prove`, ...) instead of the engine names. `vouch-id <command> --help` is unchanged.
+- Manifests created or updated with an integer `now` no longer break after a JSON round trip: `create_manifest`/`update_manifest` normalise timestamps to float before signing (#20).
+- Plan B sequencing table records the shipped venue entry flow.
+
 ## v0.4.0 (2026-10-04)
 
 - Venue entry flow: a venue keeps one `vouch-venue-policy` JSON file (required claims, voucher trust tiers and weights, `min_weight`, `max_age`) and checks QR entry passes offline. `entry` (`entry-pass`) mints a short-lived presentation bound to the venue id and the door's nonce, written as JSON plus a QR HTML page; `door` (`door-check`) verifies it against the policy, summing tier weights of distinct trusted vouchers per claim. Fail-closed: unlisted vouchers count zero, unknown tiers are errors, underweight claims deny entry. Docs in `docs/venues.md`, example policy in `examples/venue-policy.json`.
