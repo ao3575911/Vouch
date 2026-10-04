@@ -1,5 +1,5 @@
 ---
-title: ADR 0001: scope
+title: "ADR 0001: scope"
 nav_order: 7
 ---
 
