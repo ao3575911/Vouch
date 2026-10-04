@@ -2,7 +2,7 @@
 
     vouch-id get @adam              claim your name (one step, no signup)
     vouch-id show @adam             see a name's public card
-    vouch-id helper @adam cal ...   give a helper a permission slip
+    vouch-id helper @adam <helper> <scope>   give a helper a permission slip
     vouch-id cancel @adam <slip>    cancel a permission slip
     vouch-id send @adam @sam ...    send a signed message
     vouch-id check msg.json         check a signed message or presentation is genuine
@@ -39,7 +39,7 @@ Your name, your key, no signup. Plain-word commands:
   get @you                 claim your name (one step, no signup)
   show @you                see a name's public card
   card @you                printable proof card for the browser verifier
-  helper @you <scope>      give a helper a permission slip
+  helper @you <helper> <scope>   give a helper a permission slip
   cancel @you <slip>       cancel a permission slip
   send @you @them ...      send a signed message
   check <file>             check a signed message or presentation is genuine
