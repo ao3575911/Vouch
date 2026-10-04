@@ -31,6 +31,39 @@ from pathlib import Path
 
 from capgate.didhome.cli import build_parser
 
+PLAIN_HELP = """\
+usage: vouch-id [--home HOME] [--registry REGISTRY] [--passphrase] <command> ...
+
+Your name, your key, no signup. Plain-word commands:
+
+  get @you                 claim your name (one step, no signup)
+  show @you                see a name's public card
+  card @you                printable proof card for the browser verifier
+  helper @you <scope>      give a helper a permission slip
+  cancel @you <slip>       cancel a permission slip
+  send @you @them ...      send a signed message
+  check <file>             check a signed message or presentation is genuine
+  vouch @them ...          vouch for someone (age, name, custom claims)
+  keep @you <file>         store vouches you were given
+  prove @you ...           show vouched claims to one verifier
+  unvouch <id>             withdraw a vouch you made
+  entry @you ...           mint a short-lived QR entry pass for a venue
+  door <pass> ...          door staff: check an entry pass against a policy
+  guardians @you ...       name the people who can rescue your name
+  recover-start            begin the rescue ceremony (then approve-recovery, recover)
+  takeout @you             take your whole identity with you
+  audit                    check the whole registry is untampered
+
+options:
+  --home HOME              keystore dir (default ~/.didhome)
+  --registry REGISTRY      registry dir
+  --passphrase             prompt for a passphrase (or set VOUCH_ID_PASSPHRASE)
+  -h, --help               show this help
+
+Run `vouch-id <command> --help` for details. The technical names
+(claim, whoami, delegate, ...) work too — same engine, friendlier words.
+"""
+
 # plain word -> engine command
 ALIASES = {
     "get": "claim",
@@ -60,6 +93,9 @@ def _is_presentation(path: str) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        print(PLAIN_HELP, end="", file=sys.stderr)
+        return 2
     skip_next = False
     for i, token in enumerate(args):
         if skip_next:
@@ -68,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
         if token in ("--home", "--registry"):
             skip_next = True
             continue
+        if token in ("-h", "--help"):
+            # top-level help, before any subcommand: show plain words
+            print(PLAIN_HELP, end="")
+            return 0
         if token.startswith("-"):
             continue
         # first positional = the subcommand

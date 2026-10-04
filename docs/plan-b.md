@@ -90,6 +90,7 @@ Rules that keep it human:
 | 5 | Age and name proofs via vouches | ✅ this repo |
 | 5b | Unlinkable over-18 proofs, known-voucher directory, fast revocation | roadmap (#38, #39, #41) |
 | 6 | QR paper identity + static verifier page | ✅ this repo |
+| 6b | Venue entry passes: offline door checks against a signed policy | ✅ this repo ([Venues](venues.md)) |
 | 7 | Social recovery ceremony | ✅ this repo |
 
 ## 5. Principles (non-negotiable)

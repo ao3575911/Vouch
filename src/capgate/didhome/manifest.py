@@ -129,7 +129,7 @@ def create_manifest(
 ) -> Manifest:
     """Create and self-sign a v1 manifest for a handle."""
     name = validate_handle(handle)
-    ts = time.time() if now is None else now
+    ts = float(time.time() if now is None else now)
     unsigned = Manifest(
         did=DID_PREFIX + name,
         handle=name,
@@ -160,7 +160,7 @@ def update_manifest(
     if agents is not None:
         data["agents"] = agents
     data["version"] = manifest.version + 1
-    data["updated_at"] = time.time() if now is None else now
+    data["updated_at"] = float(time.time() if now is None else now)
     return _sign(Manifest.from_dict(data), root_key)
 
 
