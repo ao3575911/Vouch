@@ -31,6 +31,8 @@ from cryptography.hazmat.primitives.serialization import (
 from capgate.didhome.delegation import CapabilityToken, issue_capability_token
 from capgate.didhome.manifest import create_manifest, update_manifest, validate_handle
 from capgate.didhome.ping import Ping, create_ping, verify_ping
+from capgate.didhome.proof import card_html, create_proof
+from capgate.didhome.recovery import approve_recovery
 from capgate.didhome.registry import Registry, export_bundle
 
 
@@ -162,6 +164,64 @@ def cmd_verify_registry(args: argparse.Namespace) -> None:
     print(f"registry OK: {len(registry.handles())} handles, {count} events, chain verified")
 
 
+def cmd_card(args: argparse.Namespace) -> None:
+    name = validate_handle(args.handle)
+    root_key = Keystore(args.home).load(name)
+    manifest = Registry(args.registry).resolve(name)
+    proof = create_proof(manifest, root_key, args.statement)
+    if args.json:
+        print(json.dumps(proof, sort_keys=True, separators=(",", ":")))
+        return
+    out = Path(args.out) if args.out else Path(f"{name}.card.html")
+    out.write_text(card_html(proof), encoding="utf-8")
+    print(f"printable card for @{name}: {out}")
+    print("verify it offline with web/verify.html")
+
+
+def cmd_set_guardians(args: argparse.Namespace) -> None:
+    name = validate_handle(args.handle)
+    root_key = Keystore(args.home).load(name)
+    guardians = [validate_handle(g) for g in args.guardians]
+    Registry(args.registry).set_guardians(name, guardians, args.threshold, root_key)
+    print(f"guardians for @{name}: {sorted(guardians)} (threshold {args.threshold})")
+
+
+def cmd_recover_start(args: argparse.Namespace) -> None:
+    name = validate_handle(args.handle)
+    ks = Keystore(args.home)
+    key = Ed25519PrivateKey.generate()
+    ks.save(f"{name}.recovering", key)
+    from capgate.didhome.manifest import public_key_hex
+
+    print(f"new public key for @{name}: {public_key_hex(key.public_key())}")
+    print("ask your guardians to run: approve-recovery <guardian> " + f"@{name}")
+
+
+def cmd_approve_recovery(args: argparse.Namespace) -> None:
+    guardian = validate_handle(args.guardian)
+    guardian_key = Keystore(args.home).load(guardian)
+    registry = Registry(args.registry)
+    prior = registry.resolve(args.handle).root_public_key
+    approval = approve_recovery(
+        guardian, guardian_key, args.handle, args.new_public_key, prior
+    )
+    out = Path(args.out) if args.out else Path(f"{guardian}.approval.json")
+    out.write_text(json.dumps(approval, sort_keys=True, indent=2), encoding="utf-8")
+    print(f"approval by @{guardian} for @{validate_handle(args.handle)}: {out}")
+
+
+def cmd_recover(args: argparse.Namespace) -> None:
+    name = validate_handle(args.handle)
+    ks = Keystore(args.home)
+    new_key = ks.load(f"{name}.recovering")
+    approvals = [
+        json.loads(Path(p).read_text(encoding="utf-8")) for p in args.approvals
+    ]
+    Registry(args.registry).recover(name, new_key, approvals)
+    ks.save(name, new_key)
+    print(f"recovered @{name}: root key rotated, manifest re-signed")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="didhome", description=__doc__)
     parser.add_argument("--home", default=os.path.expanduser("~/.didhome"), help="keystore dir")
@@ -208,6 +268,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("verify-registry", help="offline-verify the whole registry (CI gate)")
     p.set_defaults(func=cmd_verify_registry)
+
+    p = sub.add_parser("card", help="emit a printable proof card (verify with web/verify.html)")
+    p.add_argument("handle")
+    p.add_argument("--statement", default="this is my name", help="what the card proves")
+    p.add_argument("--out", help="output HTML file")
+    p.add_argument("--json", action="store_true", help="print proof JSON instead of HTML")
+    p.set_defaults(func=cmd_card)
+
+    p = sub.add_parser("set-guardians", help="declare N-of-M recovery guardians")
+    p.add_argument("handle")
+    p.add_argument("guardians", nargs="+", help="guardian handles")
+    p.add_argument("--threshold", type=int, required=True)
+    p.set_defaults(func=cmd_set_guardians)
+
+    p = sub.add_parser("recover-start", help="generate a new key and print its public half")
+    p.add_argument("handle")
+    p.set_defaults(func=cmd_recover_start)
+
+    p = sub.add_parser("approve-recovery", help="guardian signs off on a key rotation")
+    p.add_argument("guardian")
+    p.add_argument("handle")
+    p.add_argument("--new-public-key", required=True)
+    p.add_argument("--out")
+    p.set_defaults(func=cmd_approve_recovery)
+
+    p = sub.add_parser("recover", help="rotate the root key with guardian approvals")
+    p.add_argument("handle")
+    p.add_argument("--approval", dest="approvals", action="append", required=True)
+    p.set_defaults(func=cmd_recover)
 
     return parser
 

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vouch — verify a proof offline</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
+h1{font-size:1.4rem}
+textarea{width:100%;height:10rem;font-family:monospace;font-size:.8rem}
+button{font-size:1rem;padding:.5rem 1.2rem;margin-top:.5rem;cursor:pointer}
+#result{margin-top:1rem;padding:1rem;border-radius:8px;font-size:1.2rem;display:none}
+.ok{background:#e6f7e6;border:2px solid #2a2;color:#161}
+.bad{background:#fde8e8;border:2px solid #c22;color:#811}
+.hint{color:#555;font-size:.85rem}
+</style>
+</head>
+<body>
+<h1>Vouch — verify a proof</h1>
+<p class="hint">Paste proof JSON (or the text behind a card's QR). The
+check runs entirely in this page — offline, nobody is called, nothing is
+logged. Works in any modern browser (WebCrypto Ed25519).</p>
+<textarea id="proof" placeholder='{"did":"did:home:adam", ... }'></textarea>
+<br><button id="go">Verify</button>
+<div id="result"></div>
+<script>
+function canonical(obj){
+  if (Array.isArray(obj)) return "[" + obj.map(canonical).join(",") + "]";
+  if (obj !== null && typeof obj === "object"){
+    return "{" + Object.keys(obj).sort().map(
+      k => JSON.stringify(k) + ":" + canonical(obj[k])).join(",") + "}";
+  }
+  return JSON.stringify(obj);
+}
+function fromHex(hex){
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+async function verify(){
+  const el = document.getElementById("result");
+  el.style.display = "block";
+  try {
+    const proof = JSON.parse(document.getElementById("proof").value);
+    const sig = fromHex(proof.signature);
+    const unsigned = Object.fromEntries(
+      Object.entries(proof).filter(([k]) => k !== "signature"));
+    const payload = new TextEncoder().encode(canonical(unsigned));
+    const key = await crypto.subtle.importKey(
+      "raw", fromHex(proof.public_key), {name: "Ed25519"}, false, ["verify"]);
+    const ok = await crypto.subtle.verify({name: "Ed25519"}, key, sig, payload);
+    if (!ok) throw new Error("signature invalid");
+    el.className = "ok";
+    el.textContent = "\u2713 genuine \u2014 @" + proof.handle + ": " + proof.statement;
+  } catch (e) {
+    el.className = "bad";
+    el.textContent = "\u2717 not verified \u2014 " + e.message;
+  }
+}
+document.getElementById("go").addEventListener("click", verify);
+</script>
+</body>
+</html>
