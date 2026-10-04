@@ -69,7 +69,7 @@ vouch-id card @adam --json                    # print the proof JSON instead
 
 The default statement is "this is my name". For a QR code on the card,
 install the extra:
-`pip install "vouch-id[qr] @ https://github.com/ao3575911/vouch-id/releases/download/v0.3.1/vouch_id-0.3.1-py3-none-any.whl"`.
+`pip install "vouch-id[qr] @ https://github.com/ao3575911/vouch-id/releases/download/v0.4.0/vouch_id-0.4.0-py3-none-any.whl"`.
 
 To check a card, open the [browser verifier](https://ao3575911.github.io/vouch-id/verify.html). It's a single static
 page that doesn't phone home; save it to use offline. The wheel ships a copy

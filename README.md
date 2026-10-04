@@ -24,7 +24,7 @@ flowchart LR
 ## Try it
 
 ```bash
-pip install https://github.com/ao3575911/vouch-id/releases/download/v0.3.1/vouch_id-0.3.1-py3-none-any.whl
+pip install https://github.com/ao3575911/vouch-id/releases/download/v0.4.0/vouch_id-0.4.0-py3-none-any.whl
 vouch-id get @adam     # claim your name and make your key
 vouch-id card @adam    # make a printable card signed with your key
 vouch-id audit         # check that nothing in the list was tampered with
