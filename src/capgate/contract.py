@@ -35,9 +35,7 @@ class ArgConstraint:
             return False
         if self.one_of is not None and value not in self.one_of:
             return False
-        return self.max_length is None or (
-            isinstance(value, str) and len(value) <= self.max_length
-        )
+        return self.max_length is None or (isinstance(value, str) and len(value) <= self.max_length)
 
 
 @dataclass(frozen=True)
@@ -87,9 +85,7 @@ class Contract:
             if effect not in VALID_EFFECTS:
                 raise ContractError(f"invalid effect {effect!r}; must be one of {VALID_EFFECTS}")
             if effect == "escalate" and not raw.get("approvers") and not doc.get("approvers"):
-                raise ContractError(
-                    f"capability {raw['tool']!r} escalates but names no approvers"
-                )
+                raise ContractError(f"capability {raw['tool']!r} escalates but names no approvers")
             delegate_to = tuple(raw.get("delegate_to", ()))
             if delegate_to and effect != "escalate":
                 raise ContractError(

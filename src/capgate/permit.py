@@ -33,9 +33,7 @@ def _canonical_json(obj: Any) -> bytes:
 
 def canonical_call_hash(tool: str, arguments: dict[str, Any]) -> str:
     """Deterministic hash of a tool call. Any argument change changes the hash."""
-    return hashlib.sha256(
-        _canonical_json({"tool": tool, "arguments": arguments})
-    ).hexdigest()
+    return hashlib.sha256(_canonical_json({"tool": tool, "arguments": arguments})).hexdigest()
 
 
 @dataclass(frozen=True)

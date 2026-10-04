@@ -61,13 +61,9 @@ def evaluate(contract, proposal: Proposal, steps_used: int) -> Decision:
 
     for constraint in cap.constraints:
         if constraint.name not in proposal.arguments:
-            return deny(
-                f"argument {constraint.name!r} required by contract but missing", clause
-            )
+            return deny(f"argument {constraint.name!r} required by contract but missing", clause)
         if not constraint.matches(proposal.arguments[constraint.name]):
-            return deny(
-                f"argument {constraint.name!r} violates contract constraint", clause
-            )
+            return deny(f"argument {constraint.name!r} violates contract constraint", clause)
 
     if cap.effect == "escalate":
         approvers = cap.approvers or contract.approvers

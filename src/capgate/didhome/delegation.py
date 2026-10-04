@@ -133,6 +133,4 @@ def verify_capability_token(
     if token.token_id in registry.revoked_token_ids(handle):
         raise DelegationError("token revoked")
     if required_permission not in token.permissions:
-        raise DelegationError(
-            f"permission {required_permission!r} not granted (deny by default)"
-        )
+        raise DelegationError(f"permission {required_permission!r} not granted (deny by default)")

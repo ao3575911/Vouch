@@ -77,9 +77,7 @@ class UnixHarnessServer:
             ):
                 raise IsolationError("invalid request")
 
-            proposal = Proposal(
-                self.contract.agent_id, request["tool"], request["arguments"]
-            )
+            proposal = Proposal(self.contract.agent_id, request["tool"], request["arguments"])
             decision, permit = self.harness.authorize(proposal)
             if permit is None:
                 response = {"effect": decision.effect, "reason": decision.reason}
@@ -144,9 +142,7 @@ class UnixHarnessClient:
         self.socket_path = str(socket_path)
         self.timeout = timeout
 
-    def call(
-        self, tool: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         request = json.dumps(
             {"tool": tool, "arguments": arguments},
             separators=(",", ":"),

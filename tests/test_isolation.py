@@ -36,9 +36,7 @@ def isolated_harness(tmp_path):
         {"read_note": lambda note: calls.append(note) or {"note": note}},
     )
     stop_event = threading.Event()
-    thread = threading.Thread(
-        target=server.serve_forever, args=(stop_event,), daemon=True
-    )
+    thread = threading.Thread(target=server.serve_forever, args=(stop_event,), daemon=True)
     thread.start()
     deadline = time.monotonic() + 2
     while not (tmp_path / "harness.sock").exists() and time.monotonic() < deadline:
@@ -77,9 +75,7 @@ def test_socket_gateway_does_not_accept_agent_identity_from_request(isolated_har
     server, _, calls = isolated_harness
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.connect(str(server.socket_path))
-    connection.sendall(
-        b'{"agent_id":"agent","tool":"read_note","arguments":{"note":"public"}}'
-    )
+    connection.sendall(b'{"agent_id":"agent","tool":"read_note","arguments":{"note":"public"}}')
     connection.shutdown(socket.SHUT_WR)
     response = connection.recv(4096)
     connection.close()

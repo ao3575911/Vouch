@@ -85,9 +85,7 @@ def test_stolen_permit_wrong_agent_denied(harness, executor):
 
 
 def test_delegation_without_escalation_denied(harness):
-    decision, permit = harness.authorize(
-        Proposal("agent://delegate", "read_file", CALL)
-    )
+    decision, permit = harness.authorize(Proposal("agent://delegate", "read_file", CALL))
     assert decision.effect == "deny"
     assert permit is None
 

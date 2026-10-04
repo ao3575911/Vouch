@@ -1,19 +1,21 @@
 """Offline proofs, printable cards, and the OIDC bridge."""
 
+import base64
 import ipaddress
 import json
 import math
+import re
 import socket
 import time
 from http.client import HTTPConnection
 from http.server import HTTPServer
 from threading import Thread
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from capgate.didhome.manifest import _canonical_json, create_manifest
+from capgate.didhome.manifest import _canonical_json, create_manifest, public_key_hex
 from capgate.didhome.proof import (
     ProofError,
     card_html,
@@ -29,8 +31,10 @@ from vouch.oidc import (
     _make_handler,
     decode_jwt,
     forwarded_client,
+    load_or_create_signing_key,
     main,
     make_server,
+    pkce_s256,
     trusted_proxy_limiter_key,
 )
 
@@ -340,16 +344,21 @@ def test_authorize_http_rate_limit_counts_invalid_requests(oidc_http_server, pro
     connection.close()
 
 
-def test_authorize_http_rate_limit_is_not_double_consumed(
-    world, oidc_http_server, provider
-):
+def _begin(provider, verifier="v" * 43, state=""):
+    challenge = provider.begin(CLIENT, REDIRECT, pkce_s256(verifier), state=state, nonce="n1")
+    return challenge, verifier
+
+
+def test_authorize_http_rate_limit_is_not_double_consumed(world, oidc_http_server, provider):
     provider.rate_limits["authorize"] = 1
-    proof = _login_proof(world, provider)
+    challenge, _ = _begin(provider)
+    proof = _login_proof(world, provider, provider.login_statement(CLIENT, challenge))
     connection = HTTPConnection(*oidc_http_server)
     connection.request(
         "POST",
         "/authorize",
-        json.dumps({"client_id": CLIENT, "redirect_uri": REDIRECT, "proof": proof}),
+        json.dumps({"challenge": challenge, "proof": proof}),
+        headers={"Content-Type": "application/json"},
     )
     response = connection.getresponse()
     assert response.status == 200
@@ -393,9 +402,7 @@ def test_http_rejects_invalid_or_oversized_content_length(
     oidc_http_server, content_length, expected_status
 ):
     connection = HTTPConnection(*oidc_http_server, timeout=1)
-    connection.request(
-        "POST", "/authorize", headers={"Content-Length": content_length}
-    )
+    connection.request("POST", "/authorize", headers={"Content-Length": content_length})
     response = connection.getresponse()
     response.read()
     assert response.status == expected_status
@@ -484,15 +491,14 @@ def test_state_is_swept_after_expiry(world, provider):
         proof = _signed_login(world, provider, now, nonce=f"n{i}")
         code = provider.authorize(CLIENT, REDIRECT, proof, now=now, limiter_key=str(i))
         if i % 2:
-            provider.token("authorization_code", code, CLIENT, REDIRECT, now=now,
-                           limiter_key=str(i))
+            provider.token(
+                "authorization_code", code, CLIENT, REDIRECT, now=now, limiter_key=str(i)
+            )
     assert len(provider._codes) == 25
     assert len(provider._access_tokens) == 25
     assert len(provider._seen_proof_nonces) == 50
     later = now + 3601
-    provider.authorize(
-        CLIENT, REDIRECT, _signed_login(world, provider, later, "fresh"), now=later
-    )
+    provider.authorize(CLIENT, REDIRECT, _signed_login(world, provider, later, "fresh"), now=later)
     assert len(provider._codes) == 1
     assert len(provider._access_tokens) == 0
     assert list(provider._seen_proof_nonces) == [("adam", "fresh")]
@@ -512,11 +518,17 @@ def test_pending_code_cap(world, provider, monkeypatch):
     monkeypatch.setattr("vouch.oidc.MAX_PENDING_CODES", 3)
     now = 1759550400
     for i in range(3):
-        provider.authorize(CLIENT, REDIRECT, _signed_login(world, provider, now, f"n{i}"),
-                           now=now, limiter_key=str(i))
+        provider.authorize(
+            CLIENT,
+            REDIRECT,
+            _signed_login(world, provider, now, f"n{i}"),
+            now=now,
+            limiter_key=str(i),
+        )
     with pytest.raises(OIDCError, match="too many pending"):
-        provider.authorize(CLIENT, REDIRECT, _signed_login(world, provider, now, "n9"),
-                           now=now, limiter_key="x")
+        provider.authorize(
+            CLIENT, REDIRECT, _signed_login(world, provider, now, "n9"), now=now, limiter_key="x"
+        )
 
 
 def test_access_token_cap_evicts_oldest(world, provider, monkeypatch):
@@ -524,10 +536,18 @@ def test_access_token_cap_evicts_oldest(world, provider, monkeypatch):
     now = 1759550400
     tokens = []
     for i in range(3):
-        code = provider.authorize(CLIENT, REDIRECT, _signed_login(world, provider, now, f"n{i}"),
-                                  now=now, limiter_key=str(i))
-        tokens.append(provider.token("authorization_code", code, CLIENT, REDIRECT, now=now,
-                                     limiter_key=str(i))["access_token"])
+        code = provider.authorize(
+            CLIENT,
+            REDIRECT,
+            _signed_login(world, provider, now, f"n{i}"),
+            now=now,
+            limiter_key=str(i),
+        )
+        tokens.append(
+            provider.token(
+                "authorization_code", code, CLIENT, REDIRECT, now=now, limiter_key=str(i)
+            )["access_token"]
+        )
     assert len(provider._access_tokens) == 2
     with pytest.raises(OIDCError, match="invalid or expired"):
         provider.userinfo("Bearer " + tokens[0], now=now)
@@ -539,9 +559,7 @@ def test_stalled_request_does_not_block_others(provider):
     thread = _serve(server)
     stalled = socket.create_connection(server.server_address)
     try:
-        stalled.sendall(
-            b"POST /authorize HTTP/1.1\r\nHost: x\r\nContent-Length: 1000\r\n\r\n{"
-        )
+        stalled.sendall(b"POST /authorize HTTP/1.1\r\nHost: x\r\nContent-Length: 1000\r\n\r\n{")
         start = time.monotonic()
         connection = HTTPConnection(*server.server_address, timeout=5)
         connection.request("GET", "/.well-known/openid-configuration")
@@ -558,23 +576,180 @@ def test_stalled_request_does_not_block_others(provider):
 
 
 def test_http_redirect_is_url_encoded(world, oidc_http_server, provider):
-    proof = _login_proof(world, provider)
     state = "a b&c=d#e"
+    challenge, _ = _begin(provider, state=state)
+    proof = _login_proof(world, provider, provider.login_statement(CLIENT, challenge))
     connection = HTTPConnection(*oidc_http_server)
     connection.request(
         "POST",
         "/authorize",
-        json.dumps(
-            {"client_id": CLIENT, "redirect_uri": REDIRECT, "proof": proof, "state": state}
-        ),
+        urlencode({"challenge": challenge, "proof": json.dumps(proof)}),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     response = connection.getresponse()
-    body = json.loads(response.read())
+    response.read()
     connection.close()
-    url = urlparse(body["redirect"])
+    assert response.status == 302
+    url = urlparse(response.getheader("Location"))
     assert f"{url.scheme}://{url.netloc}{url.path}" == REDIRECT
-    assert parse_qs(url.query) == {"code": [body["code"]], "state": [state]}
+    query = parse_qs(url.query)
+    assert query["state"] == [state]
     assert url.fragment == ""
+
+
+# -- standard flow: GET /authorize, PKCE, client auth, signing key -------------
+
+
+def _get(server_address, path):
+    connection = HTTPConnection(*server_address)
+    connection.request("GET", path)
+    response = connection.getresponse()
+    body = response.read().decode()
+    connection.close()
+    return response, body
+
+
+def test_get_authorize_shows_statement_and_full_flow(world, oidc_http_server, provider):
+    verifier = "x" * 50
+    query = urlencode(
+        {
+            "response_type": "code",
+            "scope": "openid",
+            "client_id": CLIENT,
+            "redirect_uri": REDIRECT,
+            "state": "s1",
+            "nonce": "n1",
+            "code_challenge": pkce_s256(verifier),
+            "code_challenge_method": "S256",
+        }
+    )
+    response, page = _get(oidc_http_server, "/authorize?" + query)
+    assert response.status == 200
+    assert response.getheader("Content-Type").startswith("text/html")
+    challenge = re.search(r'name="challenge" value="([^"]+)"', page).group(1)
+    statement = provider.login_statement(CLIENT, challenge)
+    assert statement in page
+    assert statement.startswith(f"login:{CLIENT}@https://vouch.example#")
+
+    code, location = provider.complete(challenge, _login_proof(world, provider, statement))
+    assert parse_qs(urlparse(location).query) == {"code": [code], "state": ["s1"]}
+    with pytest.raises(OIDCError, match="PKCE"):
+        provider.token("authorization_code", code, CLIENT, REDIRECT, code_verifier="y" * 50)
+    code, _ = provider.complete(*(_relogin(world, provider, verifier)))
+    tokens = provider.token("authorization_code", code, CLIENT, REDIRECT, code_verifier=verifier)
+    claims = decode_jwt(tokens["id_token"], provider.signing_key.public_key())
+    assert claims["nonce"] == "n1"
+
+
+def _relogin(world, provider, verifier):
+    challenge, _ = _begin(provider, verifier)
+    return challenge, _login_proof(world, provider, provider.login_statement(CLIENT, challenge))
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"code_challenge_method": "plain"},
+        {"code_challenge": ""},
+        {"response_type": "token"},
+        {"scope": "profile"},
+        {"redirect_uri": "https://evil.example/cb"},
+    ],
+)
+def test_get_authorize_rejects_bad_requests(oidc_http_server, params):
+    query = {
+        "response_type": "code",
+        "scope": "openid",
+        "client_id": CLIENT,
+        "redirect_uri": REDIRECT,
+        "code_challenge": pkce_s256("v" * 43),
+        "code_challenge_method": "S256",
+    } | params
+    response, _ = _get(oidc_http_server, "/authorize?" + urlencode(query))
+    assert response.status == 400
+    assert response.getheader("Location") is None
+
+
+def test_challenge_is_single_use_and_bound(world, provider):
+    challenge, _ = _begin(provider)
+    other, _ = _begin(provider)
+    with pytest.raises(OIDCError, match="statement"):
+        provider.complete(
+            other, _login_proof(world, provider, provider.login_statement(CLIENT, challenge))
+        )
+    provider.complete(
+        challenge, _login_proof(world, provider, provider.login_statement(CLIENT, challenge))
+    )
+    with pytest.raises(OIDCError, match="unknown or expired"):
+        provider.complete(
+            challenge, _login_proof(world, provider, provider.login_statement(CLIENT, challenge))
+        )
+
+
+def test_login_proof_for_another_issuer_is_rejected(world, provider):
+    proof = _login_proof(world, provider, f"login:{CLIENT}@https://other.example")
+    with pytest.raises(OIDCError, match="statement"):
+        provider.authorize(CLIENT, REDIRECT, proof)
+
+
+def test_confidential_client_must_authenticate(world, oidc_http_server, provider):
+    provider.client_secrets[CLIENT] = "s3cret"
+    challenge, verifier = _begin(provider)
+    code, _ = provider.complete(*(_relogin(world, provider, verifier)))
+    del challenge
+
+    def post(headers, form):
+        connection = HTTPConnection(*oidc_http_server)
+        connection.request("POST", "/token", urlencode(form), headers=headers)
+        response = connection.getresponse()
+        body = json.loads(response.read())
+        connection.close()
+        return response.status, body
+
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT,
+        "code_verifier": verifier,
+    }
+    status, body = post({}, form | {"client_id": CLIENT, "client_secret": "wrong"})
+    assert status == 400 and "authentication" in body["error"]
+    basic = base64.b64encode(f"{CLIENT}:s3cret".encode()).decode()
+    status, body = post({"Authorization": "Basic " + basic}, form)
+    assert status == 200 and "id_token" in body
+
+
+def test_discovery_advertises_pkce(provider):
+    disco = provider.discovery()
+    assert disco["code_challenge_methods_supported"] == ["S256"]
+    assert "client_secret_basic" in disco["token_endpoint_auth_methods_supported"]
+
+
+def test_signing_key_persists_at_0600(tmp_path):
+    path = tmp_path / "oidc.key"
+    first = load_or_create_signing_key(path)
+    assert path.stat().st_mode & 0o777 == 0o600
+    second = load_or_create_signing_key(path)
+    assert public_key_hex(first.public_key()) == public_key_hex(second.public_key())
+
+
+def test_issuer_follows_port(world, tmp_path, monkeypatch, capsys):
+    registry, _ = world
+    seen = {}
+
+    class FakeServer:
+        def serve_forever(self):
+            pass
+
+    def fake_make_server(provider, **kwargs):
+        seen["issuer"] = provider.issuer
+        return FakeServer()
+
+    monkeypatch.setattr("vouch.oidc.make_server", fake_make_server)
+    args = ["--registry", str(registry.root), "--port", "9123", "--client", f"{CLIENT}={REDIRECT}"]
+    args += ["--signing-key", str(tmp_path / "k")]
+    assert main(args) == 0
+    assert seen["issuer"] == "http://localhost:9123"
 
 
 # -- trusted proxy limiter key ------------------------------------------------
@@ -630,5 +805,13 @@ def test_spoofed_forwarded_for_from_untrusted_peer_ignored(provider):
 def test_main_rejects_bad_trusted_proxy(world):
     registry, _ = world
     with pytest.raises(SystemExit):
-        main(["--registry", str(registry.root), "--client", f"{CLIENT}={REDIRECT}",
-              "--trusted-proxy", "not-a-cidr"])
+        main(
+            [
+                "--registry",
+                str(registry.root),
+                "--client",
+                f"{CLIENT}={REDIRECT}",
+                "--trusted-proxy",
+                "not-a-cidr",
+            ]
+        )

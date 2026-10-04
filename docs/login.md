@@ -7,21 +7,21 @@ nav_order: 4
 
 A self-hostable OpenID Connect provider backed by did:home proofs. You sign a
 login statement with your key, the bridge checks it against the registry and
-issues a standard EdDSA-signed ID token. Today it takes a POSTed login proof;
-the browser redirect flow that WordPress or Nextcloud expect is not built yet
-(issue #13).
+issues a standard EdDSA-signed ID token. It speaks the authorization code flow
+with PKCE (S256). Not yet tested with real relying parties.
 
 ```mermaid
 sequenceDiagram
     participant You
-    participant Bridge as Vouch OIDC bridge
     participant App
-    You->>You: vouch-id card @adam --json --statement "login:myapp"
-    You->>Bridge: POST /authorize with the login proof
+    participant Bridge as Vouch OIDC bridge
+    App->>Bridge: GET /authorize (client_id, redirect_uri, PKCE challenge)
+    Bridge-->>You: page with the statement to sign
+    You->>You: vouch-id card @adam --json --statement "login:myapp@ISSUER#CHALLENGE"
+    You->>Bridge: POST /authorize with the proof
     Bridge->>Bridge: check the key against the registry, the time and the nonce
-    Bridge-->>You: one-time code
-    You->>App: redirect with the code
-    App->>Bridge: POST /token with the code
+    Bridge-->>App: redirect with a one-time code
+    App->>Bridge: POST /token with the code, code_verifier (and client secret)
     Bridge-->>App: EdDSA-signed ID token
 ```
 
@@ -29,18 +29,32 @@ sequenceDiagram
 
 ```bash
 python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
-vouch-id card @adam --json --statement "login:myapp"   # the login proof
 ```
 
-- `--client client_id=redirect_uri` is required and repeatable. The login
-  statement for a client is `login:<client_id>`.
-- `--issuer` defaults to `http://localhost:9000`, `--port` to `9000`.
-- Endpoints: `/.well-known/openid-configuration`, `/jwks.json`, `/authorize`,
-  `/token`, `/userinfo`. Authorization code flow only.
-- `POST /authorize` takes JSON `{client_id, redirect_uri, proof, nonce?, state?}`
-  and returns `{code, redirect}`. `POST /token` takes a form with
-  `grant_type=authorization_code`, `code`, `client_id` and `redirect_uri`, and
-  returns `access_token`, `id_token` and `expires_in`.
+Point the app at `http://localhost:9000` (its discovery document is at
+`/.well-known/openid-configuration`). The login page shows the exact command
+to run.
+
+- `--client client_id=redirect_uri` is required and repeatable.
+- `--client-secret-file client_id=PATH` makes that client authenticate at
+  `/token` (HTTP Basic or `client_secret` in the form). Clients without a
+  secret are public and rely on PKCE.
+- `--issuer` defaults to `http://localhost:PORT`; `--port` defaults to `9000`.
+- `--signing-key PATH` keeps the ID-token key across restarts (default
+  `~/.didhome/oidc-signing.key`, created 0600). The JWKS `kid` comes from the
+  public key.
+- The login statement is `login:<client_id>@<issuer>#<challenge>`. It is bound
+  to this bridge, this app and one login attempt, so a proof made for one app
+  or bridge does not work at another.
+- `GET /authorize` needs `response_type=code`, `scope` with `openid`, a
+  registered `client_id`/`redirect_uri` pair and `code_challenge` with
+  `code_challenge_method=S256`. Bad requests get a 400, never a redirect.
+- `POST /authorize` takes the form from the login page (`challenge`, `proof`)
+  and redirects with `code` and `state`, or JSON `{challenge, proof}` and
+  returns `{code, redirect}`.
+- `POST /token` takes `grant_type=authorization_code`, `code`, `redirect_uri`,
+  `code_verifier` and client auth, and returns `access_token`, `id_token` and
+  `expires_in`.
 
 ## Deployment notes
 
@@ -57,10 +71,9 @@ or other relying parties.
   it remotely. Do not expose the development server directly to the Internet.
 - Configure exact client redirect URIs. Do not use broad or user-controlled
   redirect patterns.
-- The signing key, authorization codes, access tokens, replay state, and rate
-  limit buckets are in memory. Restarting the process invalidates active
-  tokens/codes and generates a new signing key unless an explicit persistent
-  key-management design is added.
+- Authorization codes, pending logins, access tokens, replay state and rate
+  limit buckets are in memory, so a restart drops them. The signing key is on
+  disk (`--signing-key`). There is no key rotation yet.
 - In-memory state is bounded. Expired codes, access tokens and replay nonces
   are swept on every request. Hard caps: 10,000 pending codes and 100,000
   replay nonces (new logins are refused with an error at the cap), 100,000

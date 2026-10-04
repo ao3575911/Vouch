@@ -177,9 +177,7 @@ def test_expired_token_rejected(registry, key):
 
 def test_empty_permissions_refused(key):
     with pytest.raises(DelegationError, match="no permissions"):
-        issue_capability_token(
-            "did:home:adam", key, "cal@adam", Ed25519PrivateKey.generate(), []
-        )
+        issue_capability_token("did:home:adam", key, "cal@adam", Ed25519PrivateKey.generate(), [])
 
 
 # -- ping ------------------------------------------------------------------
@@ -237,8 +235,18 @@ def test_cli_end_to_end(tmp_path, capsys):
     ping_path = str(tmp_path / "p.json")
     assert (
         cli_main(
-            [*base, "ping", "@adam", "@sam", "--token", token_path,
-             "--body", '{"msg":"hi"}', "--out", ping_path]
+            [
+                *base,
+                "ping",
+                "@adam",
+                "@sam",
+                "--token",
+                token_path,
+                "--body",
+                '{"msg":"hi"}',
+                "--out",
+                ping_path,
+            ]
         )
         == 0
     )

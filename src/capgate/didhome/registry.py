@@ -66,9 +66,7 @@ class Registry:
         if manifest.handle != validate_handle(handle):
             raise RegistryError(f"names file for @{validate_handle(handle)} holds another handle")
         if manifest.root_public_key != self.current_root_key(manifest.did):
-            raise RegistryError(
-                f"manifest key for @{manifest.handle} does not match the event log"
-            )
+            raise RegistryError(f"manifest key for @{manifest.handle} does not match the event log")
         if self.is_deactivated(manifest.handle):
             raise RegistryError(f"handle @{manifest.handle} is deactivated")
         return manifest
@@ -104,7 +102,9 @@ class Registry:
             raise RegistryError(f"handle @{manifest.handle} already claimed")
         if manifest.version != 1:
             raise RegistryError("claim requires a version-1 manifest")
-        self._append("claimed", manifest, root_key, {"manifest_hash": manifest.manifest_hash()}, now)
+        self._append(
+            "claimed", manifest, root_key, {"manifest_hash": manifest.manifest_hash()}, now
+        )
         path.write_text(json.dumps(manifest.to_dict(), sort_keys=True, indent=2), encoding="utf-8")
 
     def update(
@@ -117,7 +117,9 @@ class Registry:
             raise RegistryError("root key continuity violated")
         if manifest.version != current.version + 1:
             raise RegistryError("manifest version must increment by exactly 1")
-        self._append("updated", manifest, root_key, {"manifest_hash": manifest.manifest_hash()}, now)
+        self._append(
+            "updated", manifest, root_key, {"manifest_hash": manifest.manifest_hash()}, now
+        )
         self._path(manifest.handle).write_text(
             json.dumps(manifest.to_dict(), sort_keys=True, indent=2), encoding="utf-8"
         )
@@ -207,9 +209,7 @@ class Registry:
         }
         detail = {
             "body": body,
-            "signature": new_root_key.sign(
-                _event_payload("recovered", current.handle, body)
-            ).hex(),
+            "signature": new_root_key.sign(_event_payload("recovered", current.handle, body)).hex(),
         }
         self.log.append("recovered", current.did, detail, now=now)
         data = current.to_dict()
@@ -236,9 +236,7 @@ class Registry:
 
     def is_deactivated(self, handle: str) -> bool:
         did = "did:home:" + validate_handle(handle)
-        return any(
-            r["event"] == "deactivated" and r["agent_id"] == did for r in self.log.records()
-        )
+        return any(r["event"] == "deactivated" and r["agent_id"] == did for r in self.log.records())
 
     # -- key history from the log -----------------------------------------
 
@@ -268,9 +266,7 @@ class Registry:
         initial: dict[str, str] = {}
         for r in records:
             if r["event"] == "recovered":
-                initial.setdefault(
-                    r["agent_id"], r["detail"]["body"]["prior_root_public_key"]
-                )
+                initial.setdefault(r["agent_id"], r["detail"]["body"]["prior_root_public_key"])
         for did, key_hex in file_keys.items():
             initial.setdefault(did, key_hex)
         claimed: dict[str, str] = {}  # did -> root key as of the current event
@@ -294,9 +290,7 @@ class Registry:
                 if policy is None:
                     raise RegistryError(f"event {i}: recovery without declared guardians")
                 guardians, threshold = policy
-                guardian_keys = {
-                    g: claimed.get("did:home:" + g, "") for g in guardians
-                }
+                guardian_keys = {g: claimed.get("did:home:" + g, "") for g in guardians}
                 try:
                     verify_approvals(
                         handle,
@@ -346,9 +340,7 @@ class Registry:
         count = self.log.verify()
         manifests: dict[str, Manifest] = {}
         for name in self.handles():
-            m = Manifest.from_dict(
-                json.loads(self._path(name).read_text(encoding="utf-8"))
-            )
+            m = Manifest.from_dict(json.loads(self._path(name).read_text(encoding="utf-8")))
             try:
                 verify_manifest(m)
             except ManifestError as exc:
@@ -363,9 +355,7 @@ class Registry:
         return count
 
 
-def export_bundle(
-    registry: Registry, handle: str, private_key: str | None
-) -> dict[str, Any]:
+def export_bundle(registry: Registry, handle: str, private_key: str | None) -> dict[str, Any]:
     """Portable identity bundle: manifest + the handle's event history + key.
 
     ``private_key`` is raw hex, an encrypted PEM, or None to leave it out.
