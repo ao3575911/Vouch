@@ -1,5 +1,5 @@
 ---
-title: Background: Plan B
+title: "Background: Plan B"
 nav_order: 8
 ---
 
