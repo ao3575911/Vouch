@@ -5,6 +5,7 @@ Thanks for contributing.
 ## Development setup
 
 ```bash
+git clone https://github.com/ao3575911/vouch-id.git && cd vouch-id
 pip install -e ".[dev]"
 ```
 

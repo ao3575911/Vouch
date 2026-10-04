@@ -2,7 +2,7 @@
 
 The canonical CODEOWNERS file for this repository is:
 
-- `/home/runner/work/Vouch/Vouch/.github/CODEOWNERS`
+- `/home/runner/work/vouch-id/vouch-id/.github/CODEOWNERS`
 
 Current owner assignment:
 

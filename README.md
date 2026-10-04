@@ -18,17 +18,17 @@ replace government ID. Scope and reasons:
 [`docs/adr-0001-scope.md`](./docs/adr-0001-scope.md). Background on the
 digital-ID problem: [`docs/plan-b.md`](./docs/plan-b.md).
 
-The Python distribution is `vouch-id` (`vouch` on PyPI is someone else's
-project). It isn't published yet; install from a clone. The import name and
-the CLI are `vouch`.
+The Python distribution and the CLI are `vouch-id` (`vouch` on PyPI is
+someone else's project). It isn't on PyPI yet, so pip installs it from this
+repo. The import name is `vouch`.
 
 ## Get your name in 3 steps
 
 ```bash
-pip install -e .
-vouch get @adam                 # 1. claim your name (makes your key)
-vouch helper @adam cal ping:send  # 2. give a helper a permission slip
-vouch audit                     # 3. prove the whole registry is untampered
+pip install "vouch-id @ git+https://github.com/ao3575911/vouch-id"
+vouch-id get @adam                 # 1. claim your name (makes your key)
+vouch-id helper @adam cal ping:send  # 2. give a helper a permission slip
+vouch-id audit                     # 3. prove the whole registry is untampered
 ```
 
 Plain words everywhere: **name, key, helper, permission slip, prove,
@@ -38,7 +38,7 @@ vouch**. No jargon required to use it. (Technical alias:
 ## Prove it anywhere
 
 ```bash
-vouch card @adam                  # printable proof card (QR with pip install -e ".[qr]")
+vouch-id card @adam               # printable proof card (QR code needs the vouch-id[qr] extra)
 # open web/verify.html, paste the card's JSON and @adam's manifest -> green tick, offline
 ```
 
@@ -58,21 +58,21 @@ Nextcloud expect is not built yet (issue #13). Limits and deployment notes:
 
 ```bash
 python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
-vouch card @adam --json --statement "login:myapp"   # the login proof
+vouch-id card @adam --json --statement "login:myapp"   # the login proof
 # POST it to /authorize, exchange the code at /token -> EdDSA ID token
 ```
 
 ## Recovery = people, not helpdesks
 
 ```bash
-vouch guardians @adam @sam @kim --threshold 2   # declare who can rescue you
-vouch recover-start @adam                       # lost key? make a new one
-vouch approve-recovery @sam @adam --new-public-key <hex>   # each guardian signs
-vouch recover @adam --approval sam.approval.json --approval kim.approval.json
+vouch-id guardians @adam @sam @kim --threshold 2   # declare who can rescue you
+vouch-id recover-start @adam                       # lost key? make a new one
+vouch-id approve-recovery @sam @adam --new-public-key <hex>   # each guardian signs
+vouch-id recover @adam --approval sam.approval.json --approval kim.approval.json
 ```
 
 The rotation is recorded in the tamper-evident log and the whole ceremony
-re-verifies offline (`vouch audit`). Guardianship: a parent issues a
+re-verifies offline (`vouch-id audit`). Guardianship: a parent issues a
 scoped child identity with the same permission-slip machinery.
 
 Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md).
@@ -113,6 +113,7 @@ Social preview asset: [`.github/assets/social-preview.svg`](./.github/assets/soc
 ## Try it
 
 ```bash
+git clone https://github.com/ao3575911/vouch-id.git && cd vouch-id
 pip install -e ".[dev]"
 ruff check src tests
 pytest -v

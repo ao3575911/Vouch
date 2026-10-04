@@ -29,12 +29,12 @@ replayed for any other rotation.
 ## Ceremony (CLI)
 
 ```bash
-vouch guardians @adam @sam @kim --threshold 2   # while you still hold the key
-vouch recover-start @adam                       # lost it: new keypair, prints pub
-vouch approve-recovery @sam @adam --new-public-key <hex>
-vouch approve-recovery @kim @adam --new-public-key <hex>
-vouch recover @adam --approval sam.approval.json --approval kim.approval.json
-vouch audit                                      # whole log re-verifies offline
+vouch-id guardians @adam @sam @kim --threshold 2   # while you still hold the key
+vouch-id recover-start @adam                       # lost it: new keypair, prints pub
+vouch-id approve-recovery @sam @adam --new-public-key <hex>
+vouch-id approve-recovery @kim @adam --new-public-key <hex>
+vouch-id recover @adam --approval sam.approval.json --approval kim.approval.json
+vouch-id audit                                      # whole log re-verifies offline
 ```
 
 `recover` checks ≥ M distinct declared guardians with valid signatures,

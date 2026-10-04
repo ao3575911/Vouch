@@ -42,8 +42,8 @@ then capgate stays in `src/capgate/`, documented in `docs/capgate.md`, and
 the README covers it in one short section.
 
 The Python distribution is `vouch-id`, because `vouch` on PyPI belongs to an
-unrelated project. The import name and the CLI stay `vouch`. Nothing is
-published yet.
+unrelated project. The repo and the CLI are `vouch-id` too. The import name
+stays `vouch`. Nothing is published yet.
 
 ## Consequences
 
