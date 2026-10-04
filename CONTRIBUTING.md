@@ -28,7 +28,7 @@ pytest -v
 - Create a focused branch per change.
 - Keep commits reviewable and scoped.
 - Open a pull request against `main`.
-- Request CODEOWNERS review.
+- GitHub requests CODEOWNERS review automatically; it isn't required to merge.
 - Reference exact commit SHA/tag when relevant.
 
 ## Security and vulnerability reporting
@@ -40,10 +40,9 @@ pytest -v
 ## Repository hygiene checklist
 
 - Branch protection/ruleset keeps:
-  - required status checks enabled (`test`)
-  - required pull request review enabled (>=1)
-  - required CODEOWNERS review enabled
-  - stale review dismissal enabled
+  - pull request required, 0 approvals, no required code-owner review
+  - required status check `test`, branch up to date
+  - squash merge only, linear history, no bypass
 - Release tag hygiene:
   - tags are created by `.github/workflows/release.yml`
   - release tags follow `vX.Y.Z`

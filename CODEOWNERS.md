@@ -1,11 +1,8 @@
 # CODEOWNERS
 
-The canonical CODEOWNERS file for this repository is:
+The CODEOWNERS file is [`.github/CODEOWNERS`](.github/CODEOWNERS). `@SM260845`
+owns all paths, so GitHub requests their review on every pull request.
 
-- `/home/runner/work/vouch-id/vouch-id/.github/CODEOWNERS`
-
-Current owner assignment:
-
-- `@SM260845` owns all paths.
-
-This repository uses required code-owner review on `main` via repository settings.
+Code-owner review is not required to merge. The `main protection` ruleset
+requires a pull request, a passing `test` check (branch up to date), squash
+merges and linear history, with 0 required approvals and no bypass.
