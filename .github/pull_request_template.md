@@ -14,6 +14,6 @@
 - [ ] CI passes (`ruff check src tests`, `pytest -v`)
 - [ ] Security implications considered
 - [ ] Documentation updated if needed
-- [ ] Branch/ruleset requirements verified (status checks, required review, CODEOWNERS, stale review dismissal)
+- [ ] Branch/ruleset requirements verified (PR required, `test` check green)
 - [ ] Release tags stay `vX.Y.Z`, as created by `.github/workflows/release.yml`
 - [ ] CODEOWNERS review requested

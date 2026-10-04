@@ -60,7 +60,7 @@ node tests/js/verify_vectors.mjs   # browser verifier against shared vectors, No
 
 The bootstrap backlog from Oct 2026 is done or tracked: CONTRIBUTING, the
 3.10-3.12 CI matrix, pre-commit and OIDC rate limiting (#8) shipped;
-CODEOWNERS enforcement is #21, roadmap milestones #22, starter discussions #23.
+settings.yml and the docs match the ruleset (#21), roadmap milestones #22, starter discussions #23.
 The rest lives in GitHub issues.
 
 - Labels: `bug`, `enhancement`, `documentation`, `good first issue`,
