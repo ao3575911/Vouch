@@ -1,4 +1,57 @@
-# capgate
+# Vouch
+
+**Your name. Your key. Your proof.** A free Plan B to government digital ID.
+
+Government digital ID: *they* check you against *their* database — and log
+every check. Vouch: *you* prove it yourself. Nobody is called. Nothing is
+logged. Nobody can switch you off.
+
+```
+ govt digital ID                     Vouch
+ ───────────────────────────        ───────────────────────────
+ you ──► their server ──► log       you ──► signed proof ──► ✓
+        (tracked, revocable)             (offline, yours forever)
+```
+
+## Why a Plan B
+
+| How digital ID traps you | How Vouch counters it |
+|---|---|
+| Mandatory for services (banking, benefits, age checks, login) | Verifier shim: services accept a Vouch proof wherever they accept ID assertions |
+| Central register tracks every verification | Static, forkable registry; proofs verify **offline**, no phone-home |
+| Phone-app monopoly | Works on paper (QR), browser, CLI — any device, no account |
+| Network effect / default | Plugs into systems people already use ([roadmap](./docs/plan-b.md)) |
+| Central revocation = social cutoff | You hold the keys; nobody can centrally disable your name |
+| "Convenient" onboarding hooks you | 60-second claim: no signup, no email, no phone number |
+
+Full strategy: [`docs/plan-b.md`](./docs/plan-b.md).
+
+## Get your name in 3 steps
+
+```bash
+pip install -e .
+vouch get @adam                 # 1. claim your name (makes your key)
+vouch helper @adam cal ping:send  # 2. give a helper a permission slip
+vouch audit                     # 3. prove the whole registry is untampered
+```
+
+Plain words everywhere: **name, key, helper, permission slip, prove,
+vouch**. No jargon required to use it. (Technical alias:
+`python -m capgate.didhome` — same engine, same commands.)
+
+## What's underneath
+
+Two layers, one set of audited primitives (Ed25519, canonical JSON,
+hash-chained logs):
+
+1. **did:home** — the identity namespace (manifests, registry, delegation,
+   pings). Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md).
+2. **capgate** — the fail-closed capability-token tool gate (internal
+   engine, documented below).
+
+---
+
+# capgate (internal engine)
 
 **Research preview — not production-grade.** Fail-closed capability-token MCP tool gate.
 
@@ -37,6 +90,23 @@ agent (proposes) ──► harness (deterministic policy + Ed25519 permit signer
 - **Executor** (`src/capgate/executor.py`): validates signature, expiry,
   single-use nonce, agent identity, and call hash before any tool runs.
   Holds tool credentials; the agent never sees them.
+
+## did:home — free, local-first DID namespace for agents
+
+Built on the same primitives (Ed25519, canonical JSON, hash-chained logs):
+`@adam` → `did:home:adam`, a self-signed manifest in a static, forkable
+registry. Utility = capability-scoped delegation (`cal@adam` acts for
+`@adam` with exactly the granted permissions) + signed replay-proof pings.
+No VM, no mail, no storage, no billing.
+
+```bash
+python -m capgate.didhome --registry ./registry claim @adam
+python -m capgate.didhome --registry ./registry delegate @adam cal ping:send
+python -m capgate.didhome --registry ./registry verify-registry
+```
+
+Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md). Code:
+`src/capgate/didhome/` (manifest, registry, delegation, ping, cli).
 
 ## Try it
 
