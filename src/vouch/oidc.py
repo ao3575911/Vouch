@@ -218,6 +218,16 @@ class OIDCProvider:
         """Exchange a one-time code for an EdDSA-signed ID token."""
         current = time.time() if now is None else now
         self._consume_rate_limit("token", limiter_key or client_id, current)
+        return self._token(grant_type, code, client_id, redirect_uri, current)
+
+    def _token(
+        self,
+        grant_type: str,
+        code: str,
+        client_id: str,
+        redirect_uri: str,
+        current: float,
+    ) -> dict[str, Any]:
         if grant_type != "authorization_code":
             raise OIDCError("unsupported grant_type")
         grant = self._codes.pop(code, None)
@@ -298,19 +308,22 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
-            if path == "/authorize":
-                current = time.time()
-                try:
-                    provider._consume_rate_limit(
-                        "authorize", self.client_address[0], current
-                    )
-                except OIDCError as exc:
-                    self._send(400, {"error": str(exc)})
-                    return
-            length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length).decode("utf-8")
+            endpoint = {"/authorize": "authorize", "/token": "token"}.get(path)
+            if endpoint is None:
+                self._send(404, {"error": "not found"})
+                return
+            # Charge the per-IP limit before reading or parsing the body, so
+            # malformed or oversized requests still count against it.
+            current = time.time()
             try:
-                if path == "/authorize":
+                provider._consume_rate_limit(endpoint, self.client_address[0], current)
+            except OIDCError as exc:
+                self._send(400, {"error": str(exc)})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length).decode("utf-8")
+                if endpoint == "authorize":
                     body = json.loads(raw)
                     code = provider._authorize(
                         body["client_id"],
@@ -327,21 +340,19 @@ def _make_handler(provider: OIDCProvider) -> type[BaseHTTPRequestHandler]:
                             + (f"&state={body['state']}" if body.get("state") else ""),
                         },
                     )
-                elif path == "/token":
+                else:
                     form = {k: v[0] for k, v in parse_qs(raw).items()}
                     self._send(
                         200,
-                        provider.token(
+                        provider._token(
                             form.get("grant_type", ""),
                             form.get("code", ""),
                             form.get("client_id", ""),
                             form.get("redirect_uri", ""),
-                            limiter_key=self.client_address[0],
+                            current,
                         ),
                     )
-                else:
-                    self._send(404, {"error": "not found"})
-            except (OIDCError, KeyError, json.JSONDecodeError) as exc:
+            except (OIDCError, KeyError, ValueError) as exc:
                 self._send(400, {"error": str(exc)})
 
         def log_message(self, *args: Any) -> None:  # quiet by default
