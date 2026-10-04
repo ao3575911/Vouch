@@ -1,5 +1,8 @@
 # The `did:home` DID Method — a free, local-first namespace for agents
 
+**Project name: Vouch** (public brand; see [`plan-b.md`](./plan-b.md)).
+`did:home` is the method name underneath; `capgate` is the internal engine.
+
 **Status:** draft v0.1 (research preview). Merges the product vision of
 [handle](https://github.com/ao3575911/handle) with the signed-manifest
 machinery of [atHome](https://github.com/ao3575911/atHome), reimplemented
