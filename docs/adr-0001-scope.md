@@ -1,6 +1,6 @@
 ---
 title: "ADR 0001: scope"
-nav_order: 8
+nav_order: 9
 ---
 
 # ADR 0001: What Vouch is and isn't

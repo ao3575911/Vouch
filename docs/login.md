@@ -1,6 +1,6 @@
 ---
 title: Login with Vouch
-nav_order: 5
+nav_order: 6
 ---
 
 # Login with Vouch (OIDC bridge)
