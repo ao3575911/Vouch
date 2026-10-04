@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vouch"
 version = "0.2.0"
-description = "Vouch: your name, your key, your proof — a free Plan B to government digital ID (did:home engine + capgate tool gate)"
+description = "Vouch: local-first identity proofs with strict capability gating, auditable logs, and SHA-traceable releases"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"

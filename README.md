@@ -76,6 +76,27 @@ scoped child identity with the same permission-slip machinery.
 
 Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md).
 
+## Versioning and traceability
+
+- Release intent is versioned via tags with commit-hash traceability.
+- Every push is tagged by workflow with:
+  - `sha-<12-char-commit-sha>`
+  - `v<pyproject-version>-<12-char-commit-sha>`
+- Issues and PRs should include commit SHA/tag references when reporting defects or changes.
+
+## Repository governance and templates
+
+- CODEOWNERS: [`.github/CODEOWNERS`](./.github/CODEOWNERS)
+- Contributor guide: [`CONTRIBUTORS.md`](./CONTRIBUTORS.md)
+- Security policy: [`SECURITY.md`](./SECURITY.md)
+- Threat model: [`THREATMODEL.md`](./THREATMODEL.md)
+- Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
+- Issue templates: [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE)
+- Copilot repository instructions: [`.github/copilot-instructions.md`](./.github/copilot-instructions.md)
+- Settings-as-code baseline: [`.github/settings.yml`](./.github/settings.yml)
+
+Social preview asset: [`.github/assets/social-preview.svg`](./.github/assets/social-preview.svg) (set in repository settings).
+
 ## What's underneath
 
 Two layers, one set of audited primitives (Ed25519, canonical JSON,
