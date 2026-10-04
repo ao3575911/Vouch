@@ -12,23 +12,28 @@ Run it:
 
 Endpoints: /.well-known/openid-configuration, /jwks.json, /authorize,
 /token, /userinfo. Authorization code flow only; deny by default.
+
+Behind a reverse proxy, pass ``--trusted-proxy CIDR`` so rate limits key on
+the client address from ``X-Forwarded-For`` rather than the proxy's.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import math
 import secrets
 import sys
+import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -40,12 +45,19 @@ from capgate.didhome.proof import ProofError, verify_proof_for_handle
 from capgate.didhome.registry import Registry, RegistryError
 
 PROOF_MAX_AGE_SECONDS = 300
+PROOF_MAX_FUTURE_SKEW_SECONDS = 30
+NONCE_TTL_SECONDS = 2 * PROOF_MAX_AGE_SECONDS
 CODE_TTL_SECONDS = 120
 TOKEN_TTL_SECONDS = 3600
 RATE_LIMIT_WINDOW_SECONDS = 60
 DEFAULT_RATE_LIMITS = {"authorize": 20, "token": 30, "userinfo": 60}
 MAX_RATE_LIMIT_BUCKETS = 10_000
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
+MAX_PENDING_CODES = 10_000
+MAX_SEEN_NONCES = 100_000
+MAX_ACCESS_TOKENS = 100_000
+REQUEST_TIMEOUT_SECONDS = 10
+MAX_CONCURRENT_CONNECTIONS = 64
 
 
 class OIDCError(ValueError):
@@ -107,12 +119,14 @@ class OIDCProvider:
     signing_key: Ed25519PrivateKey = field(default_factory=Ed25519PrivateKey.generate)
     _codes: dict[str, _Code] = field(default_factory=dict)
     _access_tokens: dict[str, dict[str, Any]] = field(default_factory=dict)
-    _seen_proof_nonces: set[str] = field(default_factory=set)
+    _seen_proof_nonces: dict[tuple[str, str], float] = field(default_factory=dict)
     rate_limit_window_seconds: int = RATE_LIMIT_WINDOW_SECONDS
     rate_limits: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
     _rate_events: OrderedDict[tuple[str, str], list[float]] = field(
         default_factory=OrderedDict
     )
+    # The HTTP server is threaded; every entry point takes this lock.
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     @property
     def kid(self) -> str:
@@ -147,7 +161,24 @@ class OIDCProvider:
         """What the user must sign (with ``vouch card``) to log in."""
         return f"login:{client_id}"
 
+    def _sweep(self, current: float) -> None:
+        """Drop expired codes, access tokens and replay nonces."""
+        for code in [c for c, g in self._codes.items() if current > g.expires_at]:
+            del self._codes[code]
+        for token in [
+            t for t, info in self._access_tokens.items() if current > info["expires_at"]
+        ]:
+            del self._access_tokens[token]
+        for key in [k for k, exp in self._seen_proof_nonces.items() if current > exp]:
+            del self._seen_proof_nonces[key]
+
     def _consume_rate_limit(self, endpoint: str, limiter_key: str, current: float) -> None:
+        with self._lock:
+            self._consume_rate_limit_locked(endpoint, limiter_key, current)
+
+    def _consume_rate_limit_locked(
+        self, endpoint: str, limiter_key: str, current: float
+    ) -> None:
         bucket_key = (endpoint, limiter_key or "global")
         window_start = current - self.rate_limit_window_seconds
         events = self._rate_events.pop(bucket_key, [])
@@ -194,6 +225,18 @@ class OIDCProvider:
         nonce: str,
         current: float,
     ) -> str:
+        with self._lock:
+            return self._authorize_locked(client_id, redirect_uri, proof, nonce, current)
+
+    def _authorize_locked(
+        self,
+        client_id: str,
+        redirect_uri: str,
+        proof: dict[str, Any],
+        nonce: str,
+        current: float,
+    ) -> str:
+        self._sweep(current)
         if self.clients.get(client_id) != redirect_uri:
             raise OIDCError("unknown client_id or redirect_uri mismatch")
         try:
@@ -202,11 +245,25 @@ class OIDCProvider:
             raise OIDCError(f"login proof rejected: {exc}") from exc
         if proof.get("statement") != self.login_statement(client_id):
             raise OIDCError("proof statement does not authorize this client")
-        if abs(current - float(proof["issued_at"])) > PROOF_MAX_AGE_SECONDS:
+        issued_at = proof.get("issued_at")
+        # bool is an int subclass; floats (including NaN and inf) are refused.
+        if type(issued_at) is not int:
+            raise OIDCError("login proof issued_at must be an integer")
+        if issued_at > current + PROOF_MAX_FUTURE_SKEW_SECONDS:
+            raise OIDCError("login proof issued in the future")
+        if current - issued_at > PROOF_MAX_AGE_SECONDS:
             raise OIDCError("login proof expired")
-        if proof["nonce"] in self._seen_proof_nonces:
+        proof_nonce = proof.get("nonce")
+        if not isinstance(proof_nonce, str) or not proof_nonce:
+            raise OIDCError("login proof nonce missing")
+        nonce_key = (manifest.handle, proof_nonce)
+        if nonce_key in self._seen_proof_nonces:
             raise OIDCError("login proof replayed")
-        self._seen_proof_nonces.add(proof["nonce"])
+        if len(self._seen_proof_nonces) >= MAX_SEEN_NONCES:
+            raise OIDCError("too many recent logins, try again later")
+        if len(self._codes) >= MAX_PENDING_CODES:
+            raise OIDCError("too many pending logins, try again later")
+        self._seen_proof_nonces[nonce_key] = current + NONCE_TTL_SECONDS
         code = secrets.token_urlsafe(24)
         self._codes[code] = _Code(
             client_id=client_id,
@@ -240,6 +297,18 @@ class OIDCProvider:
         redirect_uri: str,
         current: float,
     ) -> dict[str, Any]:
+        with self._lock:
+            return self._token_locked(grant_type, code, client_id, redirect_uri, current)
+
+    def _token_locked(
+        self,
+        grant_type: str,
+        code: str,
+        client_id: str,
+        redirect_uri: str,
+        current: float,
+    ) -> dict[str, Any]:
+        self._sweep(current)
         if grant_type != "authorization_code":
             raise OIDCError("unsupported grant_type")
         grant = self._codes.pop(code, None)
@@ -259,6 +328,9 @@ class OIDCProvider:
         if grant.nonce:
             claims["nonce"] = grant.nonce
         access_token = secrets.token_urlsafe(24)
+        while len(self._access_tokens) >= MAX_ACCESS_TOKENS:
+            # Evict the oldest token; that session has to log in again.
+            del self._access_tokens[next(iter(self._access_tokens))]
         self._access_tokens[access_token] = {
             "sub": grant.did,
             "handle": grant.handle,
@@ -275,7 +347,12 @@ class OIDCProvider:
         self, authorization: str, now: float | None = None, limiter_key: str = ""
     ) -> dict[str, Any]:
         current = time.time() if now is None else now
-        self._consume_rate_limit("userinfo", limiter_key or "bearer", current)
+        with self._lock:
+            self._consume_rate_limit_locked("userinfo", limiter_key or "bearer", current)
+            self._sweep(current)
+            return self._userinfo_locked(authorization, current)
+
+    def _userinfo_locked(self, authorization: str, current: float) -> dict[str, Any]:
         if not authorization.startswith("Bearer "):
             raise OIDCError("missing bearer token")
         info = self._access_tokens.get(authorization.removeprefix("Bearer "))
@@ -288,13 +365,74 @@ class OIDCProvider:
         }
 
 
+def _parse_ip(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        addr = ipaddress.ip_address(text.strip())
+    except ValueError:
+        return None
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
+Network = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+
+def _is_trusted(text: str, trusted: Sequence[Network]) -> bool:
+    addr = _parse_ip(text)
+    return addr is not None and any(addr in net for net in trusted)
+
+
+def forwarded_client(
+    peer: str, forwarded_for: Sequence[str], trusted: Sequence[Network]
+) -> str:
+    """The client address to rate-limit on.
+
+    ``X-Forwarded-For`` is only read when the socket peer is a trusted proxy.
+    Then the rightmost hop that is not itself a trusted proxy is the client:
+    hops to its left were supplied by the client and can be forged.
+    """
+    if not _is_trusted(peer, trusted):
+        return peer
+    hops = [h.strip() for value in forwarded_for for h in value.split(",") if h.strip()]
+    for hop in reversed(hops):
+        if not _is_trusted(hop, trusted):
+            addr = _parse_ip(hop)
+            return str(addr) if addr is not None else hop
+    return hops[0] if hops else peer
+
+
+def trusted_proxy_limiter_key(
+    trusted: Sequence[Network],
+) -> Callable[[BaseHTTPRequestHandler], str]:
+    """Limiter-key callback for ``_make_handler`` behind trusted proxies."""
+
+    def key(request: BaseHTTPRequestHandler) -> str:
+        return forwarded_client(
+            request.client_address[0],
+            request.headers.get_all("X-Forwarded-For") or [],
+            trusted,
+        )
+
+    return key
+
+
+def _redirect_url(redirect_uri: str, params: dict[str, str]) -> str:
+    sep = "&" if urlparse(redirect_uri).query else "?"
+    return redirect_uri + sep + urlencode(params)
+
+
 def _make_handler(
     provider: OIDCProvider,
     limiter_key: Callable[[BaseHTTPRequestHandler], str] | None = None,
+    request_timeout: float = REQUEST_TIMEOUT_SECONDS,
 ) -> type[BaseHTTPRequestHandler]:
     """Build a handler with an optional trusted client-identity callback."""
 
     class Handler(BaseHTTPRequestHandler):
+        # Socket timeout: a client that stalls mid-request is dropped.
+        timeout = request_timeout
+
         def _send(
             self,
             status: int,
@@ -377,13 +515,12 @@ def _make_handler(
                         body.get("nonce", ""),
                         current,
                     )
+                    params = {"code": code}
+                    if body.get("state"):
+                        params["state"] = str(body["state"])
                     self._send(
                         200,
-                        {
-                            "code": code,
-                            "redirect": f"{body['redirect_uri']}?code={code}"
-                            + (f"&state={body['state']}" if body.get("state") else ""),
-                        },
+                        {"code": code, "redirect": _redirect_url(body["redirect_uri"], params)},
                     )
                 else:
                     form = {k: v[0] for k, v in parse_qs(raw).items()}
@@ -403,13 +540,55 @@ def _make_handler(
                     {"error": str(exc)},
                     {"Retry-After": str(exc.retry_after)},
                 )
-            except (OIDCError, KeyError, ValueError) as exc:
+            except (OIDCError, KeyError, TypeError, ValueError) as exc:
                 self._send(400, {"error": str(exc)})
 
         def log_message(self, *args: Any) -> None:  # quiet by default
             pass
 
     return Handler
+
+
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """One thread per connection, capped; extra connections are closed."""
+
+    daemon_threads = True
+
+    def __init__(self, *args: Any, max_connections: int, **kwargs: Any) -> None:
+        self._slots = threading.BoundedSemaphore(max_connections)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
+def make_server(
+    provider: OIDCProvider,
+    host: str = "127.0.0.1",
+    port: int = 9000,
+    limiter_key: Callable[[BaseHTTPRequestHandler], str] | None = None,
+    request_timeout: float = REQUEST_TIMEOUT_SECONDS,
+    max_connections: int = MAX_CONCURRENT_CONNECTIONS,
+) -> ThreadingHTTPServer:
+    """Threaded HTTP server for the bridge with a per-request socket timeout."""
+    return _BoundedThreadingHTTPServer(
+        (host, port),
+        _make_handler(provider, limiter_key, request_timeout),
+        max_connections=max_connections,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -424,7 +603,19 @@ def main(argv: list[str] | None = None) -> int:
         help="client_id=redirect_uri (repeatable)",
         required=True,
     )
+    parser.add_argument(
+        "--trusted-proxy",
+        action="append",
+        default=[],
+        metavar="CIDR",
+        help="reverse proxy address range whose X-Forwarded-For is trusted for "
+        "rate limiting (repeatable); default: key on the socket peer",
+    )
     args = parser.parse_args(argv)
+    try:
+        trusted = [ipaddress.ip_network(c, strict=False) for c in args.trusted_proxy]
+    except ValueError as exc:
+        parser.error(f"--trusted-proxy: {exc}")
     clients = dict(item.split("=", 1) for item in args.client)
     registry = Registry(args.registry)
     try:
@@ -434,7 +625,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"registry verified ({count} events)")
     provider = OIDCProvider(registry, issuer=args.issuer, clients=clients)
-    server = HTTPServer(("127.0.0.1", args.port), _make_handler(provider))
+    server = make_server(
+        provider,
+        port=args.port,
+        limiter_key=trusted_proxy_limiter_key(trusted) if trusted else None,
+    )
     print(f"vouch OIDC bridge on {args.issuer} (clients: {', '.join(clients)})")
     server.serve_forever()
     return 0
