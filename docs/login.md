@@ -1,4 +1,48 @@
-# OIDC bridge: deployment notes
+---
+title: Login with Vouch
+nav_order: 4
+---
+
+# Login with Vouch (OIDC bridge)
+
+A self-hostable OpenID Connect provider backed by did:home proofs. You sign a
+login statement with your key, the bridge checks it against the registry and
+issues a standard EdDSA-signed ID token. Today it takes a POSTed login proof;
+the browser redirect flow that WordPress or Nextcloud expect is not built yet
+(issue #13).
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Bridge as Vouch OIDC bridge
+    participant App
+    You->>You: vouch-id card @adam --json --statement "login:myapp"
+    You->>Bridge: POST /authorize with the login proof
+    Bridge->>Bridge: check the key against the registry, the time and the nonce
+    Bridge-->>You: one-time code
+    You->>App: redirect with the code
+    App->>Bridge: POST /token with the code
+    Bridge-->>App: EdDSA-signed ID token
+```
+
+## Run it
+
+```bash
+python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
+vouch-id card @adam --json --statement "login:myapp"   # the login proof
+```
+
+- `--client client_id=redirect_uri` is required and repeatable. The login
+  statement for a client is `login:<client_id>`.
+- `--issuer` defaults to `http://localhost:9000`, `--port` to `9000`.
+- Endpoints: `/.well-known/openid-configuration`, `/jwks.json`, `/authorize`,
+  `/token`, `/userinfo`. Authorization code flow only.
+- `POST /authorize` takes JSON `{client_id, redirect_uri, proof, nonce?, state?}`
+  and returns `{code, redirect}`. `POST /token` takes a form with
+  `grant_type=authorization_code`, `code`, `client_id` and `redirect_uri`, and
+  returns `access_token`, `id_token` and `expires_in`.
+
+## Deployment notes
 
 The Vouch OIDC bridge is a research-preview reference implementation. It is
 not yet validated against production identity-provider deployments or a
@@ -6,7 +50,7 @@ formal OIDC conformance suite. Existing tests exercise the local authorization
 code flow; they do not establish interoperability with WordPress, Nextcloud,
 or other relying parties.
 
-## Operational constraints
+### Operational constraints
 
 - The built-in HTTP server binds to `127.0.0.1` and does not provide TLS.
   Keep it private and terminate TLS at a maintained reverse proxy if testing
@@ -34,8 +78,10 @@ or other relying parties.
   freshness affect login; restart the bridge after pulling registry changes
   so the full check runs again. A relying party must independently validate
   the returned token and issuer.
+- Do not treat a proof as evidence of age, government identity, or any claim
+  other than control of the signing key and the exact user-signed statement.
 
-## Behind a reverse proxy
+### Behind a reverse proxy
 
 The bridge binds to `127.0.0.1`, so a public deployment sits behind a reverse
 proxy. By default the rate limiter keys on the socket peer, which is then the
@@ -72,10 +118,8 @@ server {
 is a CDN or load balancer in front of nginx, add its ranges with more
 `--trusted-proxy` flags, or set nginx's `real_ip` module up so it passes on
 the right address.
-- Do not treat a proof as evidence of age, government identity, or any claim
-  other than control of the signing key and the exact user-signed statement.
 
-## Before production use
+### Before production use
 
 - Define persistent signing-key storage, rotation, backup, and incident
   response.

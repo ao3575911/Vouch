@@ -1,3 +1,8 @@
+---
+title: Background: Plan B
+nav_order: 8
+---
+
 # Plan B: escaping digital-ID lock-in with Vouch
 
 **Thesis:** government digital ID wins by being *mandatory, central, and

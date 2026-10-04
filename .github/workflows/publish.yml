@@ -1,10 +1,10 @@
 name: publish
 
 # Builds a release tag and uploads it to PyPI with trusted publishing.
-# Runs when a release is published, or by hand:
+# PyPI upload is off for now (`if: false` on the pypi job); releases ship the
+# wheel and sdist as GitHub release assets instead (release.yml). To switch it
+# on, add the trusted publisher on PyPI, remove `if: false`, then run:
 #   gh workflow run publish.yml -R ao3575911/vouch-id -f tag=vX.Y.Z
-# Releases made by release.yml use GITHUB_TOKEN, which doesn't fire this
-# trigger, so run it by hand after those.
 on:
   release:
     types: [published]
@@ -45,6 +45,7 @@ jobs:
 
   pypi:
     needs: build
+    if: false # PyPI is off until a trusted publisher exists
     runs-on: ubuntu-latest
     environment:
       name: pypi

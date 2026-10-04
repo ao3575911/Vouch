@@ -1,0 +1,15 @@
+title: Vouch
+description: ID you carry, not ID they control.
+url: https://ao3575911.github.io
+baseurl: /vouch-id
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+plugins:
+  - jekyll-remote-theme
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+mermaid:
+  version: "11.4.1"
+aux_links:
+  GitHub: https://github.com/ao3575911/vouch-id
+search_enabled: true

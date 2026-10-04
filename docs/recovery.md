@@ -1,3 +1,8 @@
+---
+title: Recovery
+nav_order: 5
+---
+
 # Social recovery & guardianship spec
 
 Recovery = people, not helpdesks. N trusted guardians can restore a lost
