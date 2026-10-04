@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible defect
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is failing and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Commit SHA / tag
+      description: Exact commit SHA or tag where this was observed.
+      placeholder: e.g. 403736e2926572d0e90c375f238220b4b4d659dc
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Security, correctness, or usability impact.
+    validations:
+      required: true
