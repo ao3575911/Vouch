@@ -130,6 +130,19 @@ class Registry:
         manifest = self.resolve(handle)
         self._append("token_revoked", manifest, root_key, {"token_id": token_id}, now)
 
+    def revoke_attestation(
+        self,
+        handle: str,
+        attestation_id: str,
+        root_key: Ed25519PrivateKey,
+        now: float | None = None,
+    ) -> None:
+        """Withdraw a vouch this handle made. Verifiers see it in the log."""
+        manifest = self.resolve(handle)
+        self._append(
+            "attestation_revoked", manifest, root_key, {"attestation_id": attestation_id}, now
+        )
+
     def deactivate(
         self, handle: str, root_key: Ed25519PrivateKey, now: float | None = None
     ) -> None:
@@ -233,6 +246,22 @@ class Registry:
             for r in self.log.records()
             if r["event"] == "token_revoked" and r["agent_id"] == did
         }
+
+    def revoked_attestation_ids(self, handle: str) -> set[str]:
+        did = "did:home:" + validate_handle(handle)
+        return {
+            r["detail"]["body"]["attestation_id"]
+            for r in self.log.records()
+            if r["event"] == "attestation_revoked" and r["agent_id"] == did
+        }
+
+    def root_key_history(self, did: str) -> set[str]:
+        """The current root key plus any key a guardian recovery replaced."""
+        keys = {self.current_root_key(did)}
+        for r in self.log.records():
+            if r["event"] == "recovered" and r["agent_id"] == did:
+                keys.add(r["detail"]["body"]["prior_root_public_key"])
+        return keys
 
     def is_deactivated(self, handle: str) -> bool:
         did = "did:home:" + validate_handle(handle)

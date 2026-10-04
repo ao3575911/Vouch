@@ -47,3 +47,21 @@ def test_verifier_page_ships_in_the_package():
     packaged = files("vouch").joinpath("verify.html")
     assert packaged.is_file()
     assert packaged.read_text(encoding="utf-8") == docs.read_text(encoding="utf-8")
+
+
+def test_presentation_vector_verifies(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from capgate.didhome.attest import verify_presentation
+    from capgate.didhome.registry import Registry
+
+    vec = VECTORS["presentation"]
+    registry = Registry(tmp_path / "reg")
+    for handle, seed in vec["seeds"].items():
+        key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed))
+        registry.claim(Manifest.from_dict(vec["manifests"][handle]), key)
+    result = verify_presentation(
+        registry, vec["presentation"], "shop.example", "4821", min_vouchers=1, now=vec["now"]
+    )
+    assert result.ok
+    assert [c.value for c in result.claims] == [True, "Zo\u00eb Adams"]
