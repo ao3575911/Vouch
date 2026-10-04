@@ -21,6 +21,7 @@ import base64
 import json
 import math
 import secrets
+import sys
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -35,7 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from capgate.didhome.proof import ProofError, verify_proof
+from capgate.didhome.proof import ProofError, verify_proof_for_handle
 from capgate.didhome.registry import Registry, RegistryError
 
 PROOF_MAX_AGE_SECONDS = 300
@@ -195,10 +196,8 @@ class OIDCProvider:
     ) -> str:
         if self.clients.get(client_id) != redirect_uri:
             raise OIDCError("unknown client_id or redirect_uri mismatch")
-        handle = str(proof.get("handle", ""))
         try:
-            manifest = self.registry.resolve(handle)
-            verify_proof(proof, expected_public_key=manifest.root_public_key)
+            manifest = verify_proof_for_handle(proof, self.registry)
         except (RegistryError, ProofError, ValueError) as exc:
             raise OIDCError(f"login proof rejected: {exc}") from exc
         if proof.get("statement") != self.login_statement(client_id):
@@ -427,7 +426,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     clients = dict(item.split("=", 1) for item in args.client)
-    provider = OIDCProvider(Registry(args.registry), issuer=args.issuer, clients=clients)
+    registry = Registry(args.registry)
+    try:
+        count = registry.verify()
+    except (RegistryError, ValueError) as exc:
+        print(f"registry failed verification, not starting: {exc}", file=sys.stderr)
+        return 1
+    print(f"registry verified ({count} events)")
+    provider = OIDCProvider(registry, issuer=args.issuer, clients=clients)
     server = HTTPServer(("127.0.0.1", args.port), _make_handler(provider))
     print(f"vouch OIDC bridge on {args.issuer} (clients: {', '.join(clients)})")
     server.serve_forever()

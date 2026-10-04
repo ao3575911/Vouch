@@ -63,6 +63,12 @@ class Registry:
             raise RegistryError(f"handle @{validate_handle(handle)} not found")
         manifest = Manifest.from_dict(json.loads(path.read_text(encoding="utf-8")))
         verify_manifest(manifest)
+        if manifest.handle != validate_handle(handle):
+            raise RegistryError(f"names file for @{validate_handle(handle)} holds another handle")
+        if manifest.root_public_key != self.current_root_key(manifest.did):
+            raise RegistryError(
+                f"manifest key for @{manifest.handle} does not match the event log"
+            )
         if self.is_deactivated(manifest.handle):
             raise RegistryError(f"handle @{manifest.handle} is deactivated")
         return manifest
@@ -234,49 +240,53 @@ class Registry:
             r["event"] == "deactivated" and r["agent_id"] == did for r in self.log.records()
         )
 
-    # -- offline verification (the CI gate) --------------------------------
+    # -- key history from the log -----------------------------------------
 
-    def verify(self) -> int:
-        """Verify the hash chain, every event signature, and every manifest.
-
-        Returns the event count. Raises on any inconsistency.
-        """
-        count = self.log.verify()
-        manifests: dict[str, Manifest] = {}
+    def _file_keys(self) -> dict[str, str]:
+        """did -> root key as written in each names file (unverified)."""
+        keys: dict[str, str] = {}
         for name in self.handles():
-            m = Manifest.from_dict(
-                json.loads(self._path(name).read_text(encoding="utf-8"))
-            )
             try:
-                verify_manifest(m)
-            except ManifestError as exc:
-                raise RegistryError(f"manifest for @{name} invalid: {exc}") from exc
-            manifests[m.did] = m
+                data = json.loads(self._path(name).read_text(encoding="utf-8"))
+                keys[str(data["did"])] = str(data["root_public_key"])
+            except (OSError, ValueError, KeyError, TypeError, ManifestError):
+                continue
+        return keys
+
+    def _replay(self, file_keys: dict[str, str]) -> dict[str, str]:
+        """Replay the event log; return did -> root key after the last event.
+
+        Checks every event signature against the key that was current at that
+        event, and every recovery's guardian approvals. ``file_keys`` supplies
+        the claim-time key for handles that were never recovered; the claim
+        event signature is what pins it.
+        """
+        from capgate.didhome.recovery import RecoveryError, verify_approvals
+
+        records = list(self.log.records())
         # initial (claim-time) root key: walk back through any recoveries
         initial: dict[str, str] = {}
-        for r in self.log.records():
+        for r in records:
             if r["event"] == "recovered":
                 initial.setdefault(
                     r["agent_id"], r["detail"]["body"]["prior_root_public_key"]
                 )
-        for did, m in manifests.items():
-            initial.setdefault(did, m.root_public_key)
+        for did, key_hex in file_keys.items():
+            initial.setdefault(did, key_hex)
         claimed: dict[str, str] = {}  # did -> root key as of the current event
         policies: dict[str, tuple[list[str], int]] = {}  # did -> (guardians, threshold)
-        for i, r in enumerate(self.log.records()):
+        for i, r in enumerate(records):
             event, did, detail = r["event"], r["agent_id"], r["detail"]
             handle = did.removeprefix("did:home:")
             if event == "claimed":
                 if did in claimed:
                     raise RegistryError(f"event {i}: duplicate claim for {did}")
-                if did not in manifests:
+                if did not in file_keys:
                     raise RegistryError(f"event {i}: claim for {did} without manifest file")
                 claimed[did] = initial[did]
             elif did not in claimed:
                 raise RegistryError(f"event {i}: {event} for unclaimed {did}")
             if event == "recovered":
-                from capgate.didhome.recovery import RecoveryError, verify_approvals
-
                 body = detail["body"]
                 if body["prior_root_public_key"] != claimed[did]:
                     raise RegistryError(f"event {i}: recovery prior key mismatch for {did}")
@@ -300,8 +310,8 @@ class Registry:
                 except RecoveryError as exc:
                     raise RegistryError(f"event {i}: {exc}") from exc
                 claimed[did] = body["new_root_public_key"]
-            key = public_key_from_hex(claimed[did])
             try:
+                key = public_key_from_hex(claimed[did])
                 key.verify(
                     bytes.fromhex(detail["signature"]),
                     _event_payload(event, handle, detail["body"]),
@@ -311,6 +321,40 @@ class Registry:
             if event == "guardians_set":
                 body = detail["body"]
                 policies[did] = (list(body["guardians"]), int(body["threshold"]))
+        return claimed
+
+    def current_root_key(self, did: str) -> str:
+        """The root key the event log says ``did`` holds now.
+
+        Replays the whole log (signatures and recoveries), so a names file
+        swapped for a self-signed manifest under another key is caught here
+        rather than only by ``verify()``. Fails closed if the log does not
+        replay cleanly.
+        """
+        claimed = self._replay(self._file_keys())
+        if did not in claimed:
+            raise RegistryError(f"no claim event for {did}")
+        return claimed[did]
+
+    # -- offline verification (the CI gate) --------------------------------
+
+    def verify(self) -> int:
+        """Verify the hash chain, every event signature, and every manifest.
+
+        Returns the event count. Raises on any inconsistency.
+        """
+        count = self.log.verify()
+        manifests: dict[str, Manifest] = {}
+        for name in self.handles():
+            m = Manifest.from_dict(
+                json.loads(self._path(name).read_text(encoding="utf-8"))
+            )
+            try:
+                verify_manifest(m)
+            except ManifestError as exc:
+                raise RegistryError(f"manifest for @{name} invalid: {exc}") from exc
+            manifests[m.did] = m
+        claimed = self._replay({did: m.root_public_key for did, m in manifests.items()})
         for did, m in manifests.items():
             if did not in claimed:
                 raise RegistryError(f"manifest {did} present without a claim event")

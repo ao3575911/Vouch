@@ -43,11 +43,15 @@ vouch**. No jargon required to use it. (Technical alias:
 
 ```bash
 vouch card @adam                  # printable proof card (QR with pip install -e ".[qr]")
-# open web/verify.html, paste the card's JSON -> green tick, fully offline
+# open web/verify.html, paste the card's JSON and @adam's manifest -> green tick, offline
 ```
 
 [`web/verify.html`](./web/verify.html) is a single static file — host it
 on GitHub Pages or scan a paper card against it; nothing phones home.
+Paste the handle's manifest from a registry copy you trust to pin the key.
+Without it the page shows an amber "unpinned" result, because anyone can
+sign a proof that names any handle. In Python, use
+`verify_proof_for_handle(proof, registry)`.
 
 ## Login with Vouch (OIDC bridge)
 

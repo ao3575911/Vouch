@@ -8,15 +8,22 @@ from threading import Thread
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from capgate.didhome.manifest import create_manifest
-from capgate.didhome.proof import ProofError, card_html, create_proof, verify_proof
-from capgate.didhome.registry import Registry
+from capgate.didhome.manifest import _canonical_json, create_manifest
+from capgate.didhome.proof import (
+    ProofError,
+    card_html,
+    create_proof,
+    verify_proof,
+    verify_proof_for_handle,
+)
+from capgate.didhome.registry import Registry, RegistryError
 from vouch.oidc import (
     MAX_REQUEST_BODY_BYTES,
     OIDCError,
     OIDCProvider,
     _make_handler,
     decode_jwt,
+    main,
 )
 
 
@@ -52,6 +59,73 @@ def test_proof_from_wrong_key_rejected(world):
     proof = create_proof(manifest, key, "hi")
     with pytest.raises(ProofError, match="unexpected key"):
         verify_proof(proof, expected_public_key="00" * 32)
+
+
+def _forged_adam():
+    """An attacker's self-signed manifest and proof for @adam under their own key."""
+    attacker = Ed25519PrivateKey.generate()
+    fake = create_manifest("adam", attacker)
+    return fake, attacker
+
+
+def test_forged_key_proof_rejected_when_pinned(world):
+    registry, _ = world
+    fake, attacker = _forged_adam()
+    proof = create_proof(fake, attacker, "I am @adam")
+    verify_proof(proof)  # self-asserted: the key in the proof did sign it
+    with pytest.raises(ProofError, match="unexpected key"):
+        verify_proof_for_handle(proof, registry)
+
+
+def test_pinned_proof_accepted(world):
+    registry, key = world
+    proof = create_proof(registry.resolve("adam"), key, "this is my name")
+    assert verify_proof_for_handle(proof, registry).did == "did:home:adam"
+
+
+def test_did_handle_mismatch_rejected(world):
+    registry, key = world
+    proof = create_proof(registry.resolve("adam"), key, "hi")
+    proof["did"] = "did:home:eve"
+    unsigned = {k: v for k, v in proof.items() if k != "signature"}
+    proof["signature"] = key.sign(_canonical_json(unsigned)).hex()
+    with pytest.raises(ProofError, match="did does not match handle"):
+        verify_proof(proof)
+    with pytest.raises(ProofError, match="did does not match handle"):
+        verify_proof_for_handle(proof, registry)
+
+
+def test_unknown_handle_rejected_when_pinned(world):
+    registry, _ = world
+    key = Ed25519PrivateKey.generate()
+    proof = create_proof(create_manifest("nobody", key), key, "hi")
+    with pytest.raises(ProofError, match="not resolvable"):
+        verify_proof_for_handle(proof, registry)
+
+
+def _swap_names_file(registry, manifest):
+    (registry.names_dir / f"{manifest.handle}.json").write_text(
+        json.dumps(manifest.to_dict()), encoding="utf-8"
+    )
+
+
+def test_resolve_rejects_swapped_manifest(world):
+    registry, _ = world
+    fake, _ = _forged_adam()
+    _swap_names_file(registry, fake)
+    with pytest.raises(RegistryError):
+        registry.resolve("adam")
+
+
+def test_resolve_rejects_names_file_for_other_handle(world):
+    registry, _ = world
+    eve_key = Ed25519PrivateKey.generate()
+    registry.claim(create_manifest("eve", eve_key), eve_key)
+    (registry.names_dir / "adam.json").write_text(
+        (registry.names_dir / "eve.json").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    with pytest.raises(RegistryError, match="another handle"):
+        registry.resolve("adam")
 
 
 def test_card_html_embeds_proof(world):
@@ -110,6 +184,30 @@ def test_full_code_flow(world, provider):
     assert claims["preferred_username"] == "@adam"
     info = provider.userinfo("Bearer " + tokens["access_token"])
     assert info["handle"] == "adam"
+
+
+def test_authorize_rejects_forged_key_proof(provider):
+    fake, attacker = _forged_adam()
+    proof = create_proof(fake, attacker, provider.login_statement(CLIENT))
+    with pytest.raises(OIDCError, match="unexpected key"):
+        provider.authorize(CLIENT, REDIRECT, proof)
+
+
+def test_authorize_rejects_swapped_manifest(world, provider):
+    registry, _ = world
+    fake, attacker = _forged_adam()
+    _swap_names_file(registry, fake)
+    proof = create_proof(fake, attacker, provider.login_statement(CLIENT))
+    with pytest.raises(OIDCError, match="login proof rejected"):
+        provider.authorize(CLIENT, REDIRECT, proof)
+
+
+def test_bridge_refuses_to_start_on_unverified_registry(world, capsys):
+    registry, _ = world
+    fake, _ = _forged_adam()
+    _swap_names_file(registry, fake)
+    assert main(["--registry", str(registry.root), "--client", f"{CLIENT}={REDIRECT}"]) == 1
+    assert "not starting" in capsys.readouterr().err
 
 
 def test_discovery_and_jwks(provider):

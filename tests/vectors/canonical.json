@@ -1,0 +1,91 @@
+{
+  "_note": "Shared by tests/test_canonical_vectors.py and tests/js/verify_vectors.mjs. Regenerate only if the canonical form changes on purpose.",
+  "canonical": [
+    {
+      "canonical": "{\"a\":\"x\",\"b\":1,\"n\":null,\"t\":true}",
+      "input": {
+        "a": "x",
+        "b": 1,
+        "n": null,
+        "t": true
+      },
+      "name": "ascii"
+    },
+    {
+      "canonical": "{\"statement\":\"Zo\\u00eb, member\"}",
+      "input": {
+        "statement": "Zoë, member"
+      },
+      "name": "non_ascii"
+    },
+    {
+      "canonical": "{\"a\":{\"b\":\"\\u65e5\\u672c\",\"c\":-5},\"z\":[{\"x\":null,\"y\":\"\\u00fc\"},true,false]}",
+      "input": {
+        "a": {
+          "b": "日本",
+          "c": -5
+        },
+        "z": [
+          {
+            "x": null,
+            "y": "ü"
+          },
+          true,
+          false
+        ]
+      },
+      "name": "nested"
+    },
+    {
+      "canonical": "{\"s\":\"hi \\ud83d\\ude00\"}",
+      "input": {
+        "s": "hi 😀"
+      },
+      "name": "astral"
+    },
+    {
+      "canonical": "{\"s\":\"tab\\tnew\\nline \\u0001 \\u2028 / \\\\ \\\" \\u007f\"}",
+      "input": {
+        "s": "tab\tnew\nline \u0001   / \\ \" "
+      },
+      "name": "controls"
+    },
+    {
+      "canonical": "{\"a\":1,\"\\u043a\\u043b\\u044e\\u0447\":\"v\"}",
+      "input": {
+        "a": 1,
+        "ключ": "v"
+      },
+      "name": "non_ascii_keys"
+    }
+  ],
+  "forged_proof": {
+    "did": "did:home:adam",
+    "handle": "adam",
+    "issued_at": 1759550400,
+    "nonce": "fedcba9876543210",
+    "public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+    "signature": "41acdf128ea9a2bee6235543030d26a1f1640d6c84daeadac26a3e95196c50b84683f6c0a155c905620e1a8338bb67214282d0cc88673600e259ccfe62f61a0d",
+    "statement": "I am @adam"
+  },
+  "manifest": {
+    "agents": [],
+    "created_at": 1759550400.5,
+    "did": "did:home:adam",
+    "handle": "adam",
+    "root_public_key": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+    "services": [],
+    "signature": "9cfe541dc600ed5f3a1f3ffc688d625b58110a3eb01f3e4f8aad59a58c50939c1a640cb5aafbf336fa8ad6758db3b8dee7e2d8c71beba5bc7332f14d4a669607",
+    "updated_at": 1759550400.5,
+    "version": 1
+  },
+  "proof": {
+    "did": "did:home:adam",
+    "handle": "adam",
+    "issued_at": 1759550400,
+    "nonce": "0123456789abcdef",
+    "public_key": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+    "signature": "b56d51e9cf597cb05e08e66bc305ed9b9d42f896b697f34af0780e36f08578ac4b078cd81d7f9e2d920e6d5cbdb2ba5bef02f6c9d418fc6c1883e849ca03ba06",
+    "statement": "Zoë, member"
+  }
+}

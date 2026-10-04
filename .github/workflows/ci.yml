@@ -26,6 +26,15 @@ jobs:
         run: ruff check src tests
       - name: Adversarial test suite
         run: pytest -v
+  test-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Browser verifier against shared vectors
+        run: node tests/js/verify_vectors.mjs
   isolation-demo:
     runs-on: ubuntu-latest
     steps:
@@ -39,10 +48,11 @@ jobs:
           docker compose -f "$compose_file" run --rm --no-deps hostile-agent
   test:
     if: always()
-    needs: [test-python, isolation-demo]
+    needs: [test-python, test-js, isolation-demo]
     runs-on: ubuntu-latest
     steps:
-      - name: Verify Python and isolation checks
+      - name: Verify Python, JS and isolation checks
         run: |
           test "${{ needs.test-python.result }}" = success
+          test "${{ needs.test-js.result }}" = success
           test "${{ needs.isolation-demo.result }}" = success

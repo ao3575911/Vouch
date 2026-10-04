@@ -27,7 +27,13 @@ from capgate.didhome.manifest import (
     verify_manifest,
 )
 from capgate.didhome.ping import Ping, PingError, create_ping, verify_ping
-from capgate.didhome.proof import ProofError, card_html, create_proof, verify_proof
+from capgate.didhome.proof import (
+    ProofError,
+    card_html,
+    create_proof,
+    verify_proof,
+    verify_proof_for_handle,
+)
 from capgate.didhome.recovery import (
     RecoveryError,
     approve_recovery,
@@ -63,4 +69,5 @@ __all__ = [
     "verify_manifest",
     "verify_ping",
     "verify_proof",
+    "verify_proof_for_handle",
 ]

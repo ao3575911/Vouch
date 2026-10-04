@@ -20,10 +20,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from capgate.didhome.manifest import (
     Manifest,
+    ManifestError,
     _canonical_json,
+    did_for_handle,
     public_key_from_hex,
     public_key_hex,
 )
+from capgate.didhome.registry import Registry, RegistryError
 
 
 class ProofError(ValueError):
@@ -57,11 +60,23 @@ def create_proof(
 
 
 def verify_proof(proof: dict[str, Any], expected_public_key: str | None = None) -> None:
-    """Verify a proof's signature (and, optionally, who signed it)."""
+    """Verify a proof's signature (and, optionally, who signed it).
+
+    Without ``expected_public_key`` this only shows that the key inside the
+    proof signed it. Anyone can make such a proof for any handle. Use
+    ``verify_proof_for_handle`` to pin the key to the registry.
+    """
     try:
         key_hex = proof["public_key"]
         signature = bytes.fromhex(proof["signature"])
+        handle = proof["handle"]
+        did = proof["did"]
     except (KeyError, TypeError, ValueError) as exc:
+        raise ProofError(f"malformed proof: {exc}") from exc
+    try:
+        if not isinstance(handle, str) or did != did_for_handle(handle):
+            raise ProofError("proof did does not match handle")
+    except ManifestError as exc:
         raise ProofError(f"malformed proof: {exc}") from exc
     if expected_public_key is not None and key_hex != expected_public_key:
         raise ProofError("proof signed by an unexpected key")
@@ -69,6 +84,26 @@ def verify_proof(proof: dict[str, Any], expected_public_key: str | None = None) 
         public_key_from_hex(key_hex).verify(signature, _proof_payload(proof))
     except (InvalidSignature, ValueError) as exc:
         raise ProofError("proof signature invalid") from exc
+
+
+def verify_proof_for_handle(proof: dict[str, Any], registry: Registry) -> Manifest:
+    """Verify a proof and require the handle's registry key to have signed it.
+
+    Resolves the handle (which checks the manifest against the event log),
+    requires ``did`` to match the handle, and pins the signing key to the
+    registry's root key. Returns the resolved manifest.
+    """
+    handle = proof.get("handle") if isinstance(proof, dict) else None
+    if not isinstance(handle, str):
+        raise ProofError("malformed proof: missing handle")
+    try:
+        manifest = registry.resolve(handle)
+    except (RegistryError, ManifestError) as exc:
+        raise ProofError(f"handle not resolvable: {exc}") from exc
+    if proof.get("did") != manifest.did:
+        raise ProofError("proof did does not match handle")
+    verify_proof(proof, expected_public_key=manifest.root_public_key)
+    return manifest
 
 
 def _qr_data_uri(text: str) -> str | None:
