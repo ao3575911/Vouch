@@ -4,6 +4,7 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+- Key files are created 0600 atomically. Optional passphrase (`--passphrase` or `VOUCH_ID_PASSPHRASE`) encrypts keys, the recovery key and takeout bundles. `takeout --without-key`.
 ## v0.3.1 (2026-10-04)
 
 - Releases attach the wheel and sdist, so you can install from GitHub without PyPI. The PyPI upload in `publish.yml` is off for now.
