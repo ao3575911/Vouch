@@ -1,5 +1,5 @@
 repository:
-  name: vouch
+  name: vouch-id
   description: "ID you carry, not ID they control. Offline proof, no account, no kill switch."
   default_branch: main
   topics: "identity, did, self-sovereign-identity, oidc, ed25519, offline-verification, security, python, privacy"

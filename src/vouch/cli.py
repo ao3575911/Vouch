@@ -1,16 +1,16 @@
-"""``vouch`` CLI — plain-language front for the did:home engine.
+"""``vouch-id`` CLI — plain-language front for the did:home engine.
 
-    vouch get @adam              claim your name (one step, no signup)
-    vouch show @adam             see a name's public card
-    vouch helper @adam cal ...   give a helper a permission slip
-    vouch cancel @adam <slip>    cancel a permission slip
-    vouch send @adam @sam ...    send a signed message
-    vouch check msg.json         check a signed message is genuine
-    vouch takeout @adam ...      take your whole identity with you
-    vouch audit                  check the whole registry is untampered
-    vouch card @adam             printable proof card (web/verify.html checks it)
-    vouch guardians @adam @sam @kim --threshold 2   people who can rescue your name
-    vouch recover-start / approve-recovery / recover   the rescue ceremony
+    vouch-id get @adam              claim your name (one step, no signup)
+    vouch-id show @adam             see a name's public card
+    vouch-id helper @adam cal ...   give a helper a permission slip
+    vouch-id cancel @adam <slip>    cancel a permission slip
+    vouch-id send @adam @sam ...    send a signed message
+    vouch-id check msg.json         check a signed message is genuine
+    vouch-id takeout @adam ...      take your whole identity with you
+    vouch-id audit                  check the whole registry is untampered
+    vouch-id card @adam             printable proof card (web/verify.html checks it)
+    vouch-id guardians @adam @sam @kim --threshold 2   people who can rescue your name
+    vouch-id recover-start / approve-recovery / recover   the rescue ceremony
 
 Same engine, friendlier words. Technical users can keep using
 ``python -m capgate.didhome`` — the commands map 1:1.
@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         args[i] = ALIASES.get(token, token)
         break
     parser = build_parser()
-    parser.prog = "vouch"
+    parser.prog = "vouch-id"
     parsed = parser.parse_args(args)
     try:
         parsed.func(parsed)

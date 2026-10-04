@@ -11,7 +11,7 @@ A portable handle, login with it, and signed statements anyone can check
 offline. Scope: docs/adr-0001-scope.md.
 
 The cryptographic engine lives in ``capgate.didhome`` (internal). This
-package re-exports it under friendly names and ships the ``vouch`` CLI.
+package re-exports it under friendly names and ships the ``vouch-id`` CLI.
 """
 
 from capgate.didhome import (

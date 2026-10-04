@@ -8,7 +8,8 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 - `Registry.resolve()` checks the manifest key against the event log; the OIDC bridge verifies the registry at startup.
 - OIDC bridge: integer `issued_at` with skew limits, expiring nonces and state caps, threaded server with timeouts, URL-encoded redirect, `--trusted-proxy`.
 - Browser and Python canonical JSON agree for non-ASCII, with shared test vectors.
-- Distribution renamed to `vouch-id`; import name and CLI stay `vouch`. Scope recorded in `docs/adr-0001-scope.md`; capgate docs moved to `docs/capgate.md`.
+- Distribution renamed to `vouch-id`; import name stays `vouch`. Scope recorded in `docs/adr-0001-scope.md`; capgate docs moved to `docs/capgate.md`.
+- Repo renamed to `ao3575911/vouch-id` and the CLI to `vouch-id`. The `vouch` command is gone; run `vouch-id` instead.
 
 ## v0.2.0 (2026-10-04)
 

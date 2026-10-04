@@ -36,7 +36,7 @@ One protocol, three tiers:
 |---|---|---|
 | Paper | grandma, kids, no-phone | printed QR card; anyone scans it against a static verifier page |
 | Browser | most people | PWA / extension; key lives in a passkey, claim = one click |
-| CLI | technical | `vouch get @adam` (shipping today) |
+| CLI | technical | `vouch-id get @adam` (shipping today) |
 
 Rules that keep it human:
 - UI words only: *name, key, helper, permission slip, prove, vouch*.
@@ -86,6 +86,6 @@ Rules that keep it human:
 - Verification must work **offline** from a registry mirror. Any feature
   that requires calling home is rejected.
 - No accounts, no email, no phone number to claim a name.
-- The registry is forkable; leaving is always possible (`vouch takeout`).
+- The registry is forkable; leaving is always possible (`vouch-id takeout`).
 - Free forever: no VM, no storage service, no billing — nothing that
   forces charging money (see did:home spec §8).

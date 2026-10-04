@@ -158,7 +158,7 @@ class OIDCProvider:
     # -- authorization code flow -------------------------------------------
 
     def login_statement(self, client_id: str) -> str:
-        """What the user must sign (with ``vouch card``) to log in."""
+        """What the user must sign (with ``vouch-id card``) to log in."""
         return f"login:{client_id}"
 
     def _sweep(self, current: float) -> None:
