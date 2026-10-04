@@ -4,6 +4,8 @@ Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and
 
 ## Unreleased
 
+- Packaging for PyPI: SPDX licence, project URLs and classifiers; README links work on PyPI; trusted-publishing workflow (`publish.yml`).
+
 ## v0.3.0 (2026-10-04)
 
 - **Breaking:** the CLI command is now `vouch-id` (was `vouch`), e.g. `vouch-id get @adam`. There is no `vouch` alias. The import package stays `vouch`.

@@ -15,17 +15,16 @@ it, and statements anyone can check offline.
 What it isn't: a proof is a statement signed by your key. Nobody attests
 that it's true, so Vouch can't prove your age or legal name and doesn't
 replace government ID. Scope and reasons:
-[`docs/adr-0001-scope.md`](./docs/adr-0001-scope.md). Background on the
-digital-ID problem: [`docs/plan-b.md`](./docs/plan-b.md).
+[`docs/adr-0001-scope.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/adr-0001-scope.md). Background on the
+digital-ID problem: [`docs/plan-b.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/plan-b.md).
 
 The Python distribution and the CLI are `vouch-id` (`vouch` on PyPI is
-someone else's project). It isn't on PyPI yet, so pip installs it from this
-repo. The import name is `vouch`.
+someone else's project). The import name is `vouch`.
 
 ## Get your name in 3 steps
 
 ```bash
-pip install "vouch-id @ git+https://github.com/ao3575911/vouch-id"
+pip install vouch-id
 vouch-id get @adam                 # 1. claim your name (makes your key)
 vouch-id helper @adam cal ping:send  # 2. give a helper a permission slip
 vouch-id audit                     # 3. prove the whole registry is untampered
@@ -38,11 +37,11 @@ vouch**. No jargon required to use it. (Technical alias:
 ## Prove it anywhere
 
 ```bash
-vouch-id card @adam               # printable proof card (QR code needs the vouch-id[qr] extra)
+vouch-id card @adam               # printable proof card (QR code: pip install "vouch-id[qr]")
 # open web/verify.html, paste the card's JSON and @adam's manifest -> green tick, offline
 ```
 
-[`web/verify.html`](./web/verify.html) is a single static file — host it
+[`web/verify.html`](https://github.com/ao3575911/vouch-id/blob/main/web/verify.html) is a single static file — host it
 on GitHub Pages or scan a paper card against it; nothing phones home.
 Paste the handle's manifest from a registry copy you trust to pin the key.
 Without it the page shows an amber "unpinned" result, because anyone can
@@ -54,7 +53,7 @@ sign a proof that names any handle. In Python, use
 Self-hostable OpenID Connect provider backed by did:home proofs. Today it
 takes a POSTed login proof; the browser redirect flow that WordPress or
 Nextcloud expect is not built yet (issue #13). Limits and deployment notes:
-[`docs/oidc-deployment.md`](./docs/oidc-deployment.md).
+[`docs/oidc-deployment.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/oidc-deployment.md).
 
 ```bash
 python -m vouch.oidc --registry ./registry --client myapp=https://app/cb
@@ -75,40 +74,40 @@ The rotation is recorded in the tamper-evident log and the whole ceremony
 re-verifies offline (`vouch-id audit`). Guardianship: a parent issues a
 scoped child identity with the same permission-slip machinery.
 
-Maintainers: repo transfer checklist in [`docs/transfer.md`](./docs/transfer.md).
-Isolated capgate demo: [`docs/isolation.md`](./docs/isolation.md). OIDC
-deployment limits: [`docs/oidc-deployment.md`](./docs/oidc-deployment.md).
+Maintainers: repo transfer checklist in [`docs/transfer.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/transfer.md).
+Isolated capgate demo: [`docs/isolation.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/isolation.md). OIDC
+deployment limits: [`docs/oidc-deployment.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/oidc-deployment.md).
 
 ## Versioning and traceability
 
-- [SemVer](https://semver.org) tags: `vX.Y.Z`. History in [`CHANGELOG.md`](./CHANGELOG.md).
+- [SemVer](https://semver.org) tags: `vX.Y.Z`. History in [`CHANGELOG.md`](https://github.com/ao3575911/vouch-id/blob/main/CHANGELOG.md).
 - To release: bump `version` in `pyproject.toml` in a PR. Merging it to `main` creates the tag and a GitHub Release.
 - Every tag points at an exact commit, so `vX.Y.Z` is the trace reference for issues and PRs.
 
 ## Repository governance and templates
 
-- CODEOWNERS: [`.github/CODEOWNERS`](./.github/CODEOWNERS)
-- Contributing guide: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
-- Contributor guide: [`CONTRIBUTORS.md`](./CONTRIBUTORS.md)
-- Security policy: [`SECURITY.md`](./SECURITY.md)
-- Threat model: [`THREATMODEL.md`](./THREATMODEL.md)
-- Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
-- Issue templates: [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE)
-- Hygiene bootstrap backlog: [`docs/repo-hygiene-bootstrap.md`](./docs/repo-hygiene-bootstrap.md)
-- Copilot repository instructions: [`.github/copilot-instructions.md`](./.github/copilot-instructions.md)
-- Settings-as-code baseline: [`.github/settings.yml`](./.github/settings.yml)
+- CODEOWNERS: [`.github/CODEOWNERS`](https://github.com/ao3575911/vouch-id/blob/main/.github/CODEOWNERS)
+- Contributing guide: [`CONTRIBUTING.md`](https://github.com/ao3575911/vouch-id/blob/main/CONTRIBUTING.md)
+- Contributor guide: [`CONTRIBUTORS.md`](https://github.com/ao3575911/vouch-id/blob/main/CONTRIBUTORS.md)
+- Security policy: [`SECURITY.md`](https://github.com/ao3575911/vouch-id/blob/main/SECURITY.md)
+- Threat model: [`THREATMODEL.md`](https://github.com/ao3575911/vouch-id/blob/main/THREATMODEL.md)
+- Pull request template: [`.github/pull_request_template.md`](https://github.com/ao3575911/vouch-id/blob/main/.github/pull_request_template.md)
+- Issue templates: [`.github/ISSUE_TEMPLATE/`](https://github.com/ao3575911/vouch-id/tree/main/.github/ISSUE_TEMPLATE)
+- Hygiene bootstrap backlog: [`docs/repo-hygiene-bootstrap.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/repo-hygiene-bootstrap.md)
+- Copilot repository instructions: [`.github/copilot-instructions.md`](https://github.com/ao3575911/vouch-id/blob/main/.github/copilot-instructions.md)
+- Settings-as-code baseline: [`.github/settings.yml`](https://github.com/ao3575911/vouch-id/blob/main/.github/settings.yml)
 
-Social preview asset: [`.github/assets/social-preview.svg`](./.github/assets/social-preview.svg) (set in repository settings).
+Social preview asset: [`.github/assets/social-preview.svg`](https://github.com/ao3575911/vouch-id/blob/main/.github/assets/social-preview.svg) (set in repository settings).
 
 ## What's underneath
 
 1. **did:home**: the identity namespace (manifests, registry, delegation,
-   pings, recovery, proofs). Spec: [`docs/did-home-spec.md`](./docs/did-home-spec.md).
+   pings, recovery, proofs). Spec: [`docs/did-home-spec.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/did-home-spec.md).
    The code lives in `src/capgate/didhome/` for now.
 2. **capgate**: a fail-closed capability-token tool gate for AI agents. It
    shares the primitives (Ed25519, canonical JSON, hash-chained logs) but is
    a separate product and will move to its own repo (issue #15). Docs:
-   [`docs/capgate.md`](./docs/capgate.md).
+   [`docs/capgate.md`](https://github.com/ao3575911/vouch-id/blob/main/docs/capgate.md).
 
 ## Try it
 
