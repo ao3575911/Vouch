@@ -2,7 +2,7 @@
 
 Versions follow [SemVer](https://semver.org). Each version is a `vX.Y.Z` tag and a GitHub Release.
 
-## Unreleased
+## v0.4.0 (2026-10-04)
 
 - Venue entry flow: a venue keeps one `vouch-venue-policy` JSON file (required claims, voucher trust tiers and weights, `min_weight`, `max_age`) and checks QR entry passes offline. `entry` (`entry-pass`) mints a short-lived presentation bound to the venue id and the door's nonce, written as JSON plus a QR HTML page; `door` (`door-check`) verifies it against the policy, summing tier weights of distinct trusted vouchers per claim. Fail-closed: unlisted vouchers count zero, unknown tiers are errors, underweight claims deny entry. Docs in `docs/venues.md`, example policy in `examples/venue-policy.json`.
 - Vouches: prove age and name. `vouch` signs a claim (over18, name, key=value) about someone's handle and key, with how you checked and an optional expiry. `keep` stores vouches, `prove` signs chosen ones for one verifier (audience, nonce, 5 minutes), `check` verifies them against the registry with `--trust` and `--min`, and `unvouch` withdraws one through the event log. The browser verifier checks presentations too. ADR 0002 amends ADR 0001.
