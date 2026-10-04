@@ -2,16 +2,7 @@ repository:
   name: vouch
   description: "ID you carry, not ID they control. Offline proof, no account, no kill switch."
   default_branch: main
-  topics:
-    - identity
-    - did
-    - self-sovereign-identity
-    - oidc
-    - ed25519
-    - offline-verification
-    - security
-    - python
-    - privacy
+  topics: "identity, did, self-sovereign-identity, oidc, ed25519, offline-verification, security, python, privacy"
   has_issues: true
   has_projects: true
   has_wiki: false
@@ -37,59 +28,59 @@ branches:
 
 labels:
   - name: accessibility
-    color: f143ab
+    color: "f143ab"
     description: Barrier affecting people with disabilities
   - name: blocked
-    color: b60205
+    color: "b60205"
     description: Blocked by dependency or external constraint
   - name: bug
-    color: d73a4a
+    color: "d73a4a"
     description: Something isn't working
   - name: ci
-    color: 0e8a16
+    color: "0e8a16"
     description: Continuous integration or workflow reliability
   - name: documentation
-    color: 0075ca
+    color: "0075ca"
     description: Improvements or additions to documentation
   - name: duplicate
-    color: cfd3d7
+    color: "cfd3d7"
     description: This issue or pull request already exists
   - name: enhancement
-    color: a2eeef
+    color: "a2eeef"
     description: New feature or request
   - name: good first issue
-    color: 7057ff
+    color: "7057ff"
     description: Good for newcomers
   - name: governance
-    color: 5319e7
+    color: "5319e7"
     description: Repository policy, permissions, and controls
   - name: help wanted
-    color: 008672
+    color: "008672"
     description: Extra attention is needed
   - name: invalid
-    color: e4e669
+    color: "e4e669"
     description: This doesn't seem right
   - name: needs-triage
-    color: fbca04
+    color: "fbca04"
     description: Needs initial maintainer triage
   - name: priority:p0
-    color: b60205
+    color: "b60205"
     description: Highest priority
   - name: priority:p1
-    color: d93f0b
+    color: "d93f0b"
     description: High priority
   - name: priority:p2
-    color: fbca04
+    color: "fbca04"
     description: Normal priority
   - name: question
-    color: d876e3
+    color: "d876e3"
     description: Further information is requested
   - name: roadmap
-    color: 1d76db
+    color: "1d76db"
     description: Roadmap planning and milestone alignment
   - name: security
-    color: b60205
+    color: "b60205"
     description: Security hardening, vulnerabilities, or threat model changes
   - name: wontfix
-    color: ffffff
+    color: "ffffff"
     description: This will not be worked on

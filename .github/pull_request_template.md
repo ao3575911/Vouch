@@ -15,5 +15,5 @@
 - [ ] Security implications considered
 - [ ] Documentation updated if needed
 - [ ] Branch/ruleset requirements verified (status checks, required review, CODEOWNERS, stale review dismissal)
-- [ ] Release tags remain consistent with `.github/workflows/tag-version.yml`
+- [ ] Release tags stay `vX.Y.Z`, as created by `.github/workflows/release.yml`
 - [ ] CODEOWNERS review requested
